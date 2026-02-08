@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import { UserButton } from '@clerk/nextjs';
 import * as XLSX from 'xlsx';
+import { useTheme } from './components/ThemeProvider';
 
 /* =======================
    Types
@@ -38,6 +39,9 @@ const months = [
 ======================= */
 
 export default function Home() {
+        const { theme, toggleTheme } = useTheme();
+        // Menu state
+        const [showMenu, setShowMenu] = useState(false);
         // State for add entry modal
         const [showAddEntry, setShowAddEntry] = useState(false);
         const [addEntryBudgetIndex, setAddEntryBudgetIndex] = useState<number | null>(null);
@@ -259,7 +263,7 @@ export default function Home() {
 
 
   return (
-    <main className="min-h-screen bg-[#f3f6fb] p-6 text-gray-900">
+    <main className="min-h-screen bg-[#f3f6fb] dark:bg-gray-900 p-6 text-gray-900 dark:text-gray-100">
       {/* Floating Add Entry Button */}
       <button
         className="fixed bottom-28 right-10 bg-green-600 hover:bg-green-700 text-white rounded-full shadow-lg px-6 py-4 text-lg font-semibold z-50 flex items-center gap-2"
@@ -278,12 +282,12 @@ export default function Home() {
       {/* Add Entry Modal */}
       {showAddEntry && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-2xl shadow-lg p-8 w-full max-w-md">
-            <h2 className="font-bold text-xl mb-4">Add Entry</h2>
+          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-lg p-8 w-full max-w-md">
+            <h2 className="font-bold text-xl mb-4 text-gray-900 dark:text-gray-100">Add Entry</h2>
             <div className="mb-3">
-              <label className="block mb-1 font-medium">Budget</label>
+              <label className="block mb-1 font-medium text-gray-900 dark:text-gray-100">Budget</label>
               <select
-                className="border rounded px-3 py-2 w-full"
+                className="border dark:border-gray-600 rounded px-3 py-2 w-full bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                 value={addEntryBudgetIndex ?? ''}
                 onChange={e => setAddEntryBudgetIndex(Number(e.target.value))}
               >
@@ -293,37 +297,37 @@ export default function Home() {
               </select>
             </div>
             <div className="mb-3">
-              <label className="block mb-1 font-medium">Title</label>
+              <label className="block mb-1 font-medium text-gray-900 dark:text-gray-100">Title</label>
               <input
-                className="border rounded px-3 py-2 w-full"
+                className="border dark:border-gray-600 rounded px-3 py-2 w-full bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                 value={addEntryTitle}
                 onChange={e => setAddEntryTitle(e.target.value)}
                 placeholder="e.g. Uber, Anime Con"
               />
             </div>
             <div className="mb-3">
-              <label className="block mb-1 font-medium">Amount (₹)</label>
+              <label className="block mb-1 font-medium text-gray-900 dark:text-gray-100">Amount (₹)</label>
               <input
                 type="number"
-                className="border rounded px-3 py-2 w-full"
+                className="border dark:border-gray-600 rounded px-3 py-2 w-full bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                 value={addEntryAmount}
                 onChange={e => setAddEntryAmount(Number(e.target.value) || 0)}
                 min={0}
               />
             </div>
             <div className="mb-3">
-              <label className="block mb-1 font-medium">Date</label>
+              <label className="block mb-1 font-medium text-gray-900 dark:text-gray-100">Date</label>
               <input
                 type="date"
-                className="border rounded px-3 py-2 w-full"
+                className="border dark:border-gray-600 rounded px-3 py-2 w-full bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                 value={addEntryDate}
                 onChange={e => setAddEntryDate(e.target.value)}
               />
             </div>
             <div className="mb-6">
-              <label className="block mb-1 font-medium">Notes</label>
+              <label className="block mb-1 font-medium text-gray-900 dark:text-gray-100">Notes</label>
               <textarea
-                className="border rounded px-3 py-2 w-full"
+                className="border dark:border-gray-600 rounded px-3 py-2 w-full bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                 value={addEntryNotes}
                 onChange={e => setAddEntryNotes(e.target.value)}
                 placeholder="Optional notes"
@@ -331,7 +335,7 @@ export default function Home() {
             </div>
             <div className="flex justify-end gap-2">
               <button
-                className="px-4 py-2 rounded border"
+                className="px-4 py-2 rounded border dark:border-gray-600 text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700"
                 onClick={() => setShowAddEntry(false)}
               >Cancel</button>
               <button
@@ -359,90 +363,117 @@ export default function Home() {
         </div>
       )}
       {/* Header Bar */}
-      <header className="flex flex-col gap-4 mb-8">
-        <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-bold tracking-tight">Personal Finance Tracker</h1>
-          <div className="flex items-center gap-4">
-            <span className="font-medium text-gray-700">Total Salary:</span>
-            <span className="font-bold text-gray-900">₹ {Number(totalSalary).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
-            {safeCarryforward > 0 && (
-              <span className="inline-flex items-center gap-1 px-2 py-1 bg-green-100 text-green-700 rounded-full text-xs font-semibold">
-                ↑ ₹{Number(safeCarryforward).toLocaleString()} carried forward
-              </span>
-            )}
-            <button
-              className="ml-2 text-gray-500 hover:text-gray-700 text-base px-2 py-1 rounded"
-              onClick={() => {
-                setMonthlyDraft(monthlyTotal);
-                setEditingMonthly(true);
-              }}
-              title="Edit Base Salary"
-            >✏️</button>
-            <span className="font-medium text-gray-700">| Allocated:</span>
-            <span className="font-bold text-purple-700">₹ {Number(safeTotalAllocated).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
-            <span className="font-medium text-gray-700">| Spent:</span>
-            <span className="font-bold text-blue-700">₹ {Number(safeTotalSpent).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
-            <span className="font-medium text-gray-700">| Unallocated:</span>
-            <span className="font-bold text-green-700">₹ {Number(unallocated).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
-            <button
-              className="ml-4 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-semibold shadow-sm flex items-center gap-2"
-              onClick={downloadExcel}
-              title="Download Excel Report"
-            >
-              📊 Download Excel
-            </button>
-            <div className="ml-4">
-              <UserButton afterSignOutUrl="/" />
-            </div>
-          </div>
-        </div>
-        <div className="flex justify-center gap-4">
+      <header className="flex items-center justify-between mb-6 bg-white dark:bg-gray-800 rounded-lg shadow p-4">
+        <div className="flex-1"></div>
+        
+        <h1 className="text-xl font-bold tracking-tight text-gray-900 dark:text-gray-100">Personal Finance Tracker</h1>
+        
+        <div className="flex-1 flex items-center justify-end gap-3">
+          {/* Month/Year Selectors */}
           <select
             value={selectedMonth}
             onChange={(e) => setSelectedMonth(Number(e.target.value))}
-            className="border px-3 py-2 rounded-lg bg-white shadow-sm text-lg font-medium"
+            className="border dark:border-gray-600 px-2 py-1 rounded bg-white dark:bg-gray-700 text-sm text-gray-900 dark:text-gray-100"
           >
             {months.map((m, i) => (
-              <option key={m} value={i}>
-                {m}
-              </option>
+              <option key={m} value={i}>{m}</option>
             ))}
           </select>
+          
           <select
             value={selectedYear}
             onChange={(e) => setSelectedYear(Number(e.target.value))}
-            className="border px-3 py-2 rounded-lg bg-white shadow-sm text-lg font-medium"
+            className="border dark:border-gray-600 px-2 py-1 rounded bg-white dark:bg-gray-700 text-sm text-gray-900 dark:text-gray-100"
           >
             <option value={2026}>2026</option>
             <option value={2027}>2027</option>
           </select>
+
+          {/* Menu Button with Dropdown */}
+          <div className="relative">
+            <button
+              onClick={() => setShowMenu(!showMenu)}
+              className="p-2 rounded-lg bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-900 dark:text-gray-100 text-xl"
+              title="Menu"
+            >
+              ☰
+            </button>
+            
+            {showMenu && (
+              <>
+                {/* Backdrop to close menu when clicking outside */}
+                <div 
+                  className="fixed inset-0 z-40" 
+                  onClick={() => setShowMenu(false)}
+                />
+                
+                <div className="absolute right-0 mt-2 w-52 bg-white dark:bg-gray-800 border dark:border-gray-600 rounded-lg shadow-xl z-50">
+                  <button
+                    onClick={() => {
+                      setMonthlyDraft(monthlyTotal);
+                      setEditingMonthly(true);
+                      setShowMenu(false);
+                    }}
+                    className="block w-full text-left px-4 py-2.5 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-900 dark:text-gray-100 border-b dark:border-gray-600"
+                  >
+                    <span className="text-base">✏️</span> Edit Base Salary
+                  </button>
+                  
+                  <button
+                    onClick={() => {
+                      toggleTheme();
+                      setShowMenu(false);
+                    }}
+                    className="block w-full text-left px-4 py-2.5 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-900 dark:text-gray-100 border-b dark:border-gray-600"
+                  >
+                    <span className="text-base">{theme === 'light' ? '🌙' : '☀️'}</span> {theme === 'light' ? 'Dark' : 'Light'} Mode
+                  </button>
+                  
+                  <button
+                    onClick={() => {
+                      downloadExcel();
+                      setShowMenu(false);
+                    }}
+                    className="block w-full text-left px-4 py-2.5 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-900 dark:text-gray-100 border-b dark:border-gray-600"
+                  >
+                    <span className="text-base">📊</span> Download Excel
+                  </button>
+                  
+                  <div className="px-4 py-3 flex items-center gap-2">
+                    <UserButton afterSignOutUrl="/" />
+                    <span className="text-sm text-gray-600 dark:text-gray-400">Account</span>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
         </div>
       </header>
 
       {/* Edit Monthly Budget Modal */}
       {editingMonthly && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-xl p-6 shadow w-full max-w-sm">
-            <h2 className="font-semibold mb-4">Edit Base Salary for {months[selectedMonth]}</h2>
+          <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow w-full max-w-sm">
+            <h2 className="font-semibold mb-4 text-gray-900 dark:text-gray-100">Edit Base Salary for {months[selectedMonth]}</h2>
             {safeCarryforward > 0 && (
-              <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg text-sm">
+              <div className="mb-4 p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-700 rounded-lg text-sm">
                 <div className="flex justify-between mb-1">
-                  <span className="text-gray-600">Carryforward from previous month:</span>
-                  <span className="font-semibold text-green-700">₹{Number(safeCarryforward).toLocaleString()}</span>
+                  <span className="text-gray-600 dark:text-gray-400">Carryforward from previous month:</span>
+                  <span className="font-semibold text-green-700 dark:text-green-400">₹{Number(safeCarryforward).toLocaleString()}</span>
                 </div>
                 <div className="flex justify-between mb-1">
-                  <span className="text-gray-600">Current base salary:</span>
-                  <span className="font-semibold text-gray-700">₹{Number(monthlyTotal).toLocaleString()}</span>
+                  <span className="text-gray-600 dark:text-gray-400">Current base salary:</span>
+                  <span className="font-semibold text-gray-700 dark:text-gray-300">₹{Number(monthlyTotal).toLocaleString()}</span>
                 </div>
-                <div className="flex justify-between pt-2 border-t border-green-300 mt-2">
-                  <span className="font-semibold text-gray-800">Total Available:</span>
-                  <span className="font-bold text-gray-900">₹{Number(totalSalary).toLocaleString()}</span>
+                <div className="flex justify-between pt-2 border-t border-green-300 dark:border-green-600 mt-2">
+                  <span className="font-semibold text-gray-800 dark:text-gray-200">Total Available:</span>
+                  <span className="font-bold text-gray-900 dark:text-gray-100">₹{Number(totalSalary).toLocaleString()}</span>
                 </div>
               </div>
             )}
             <input
               type="number"
-              className="border rounded px-2 py-1 w-full mb-4"
+              className="border dark:border-gray-600 rounded px-2 py-1 w-full mb-4 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
               value={monthlyDraft}
               onChange={e => setMonthlyDraft(Number(e.target.value) || 0)}
               min={0}
@@ -450,7 +481,7 @@ export default function Home() {
             <div className="flex justify-end gap-2">
               <button
                 onClick={() => setEditingMonthly(false)}
-                className="border px-3 py-1 rounded"
+                className="border dark:border-gray-600 px-3 py-1 rounded text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700"
               >Cancel</button>
               <button
                 onClick={async () => {
@@ -468,7 +499,7 @@ export default function Home() {
                   });
                   setEditingMonthly(false);
                 }}
-                className="bg-black text-white px-3 py-1 rounded"
+                className="bg-black dark:bg-gray-600 text-white px-3 py-1 rounded hover:bg-gray-800 dark:hover:bg-gray-500"
               >Save</button>
             </div>
           </div>
@@ -476,30 +507,30 @@ export default function Home() {
       )}
 
       {/* Overview Card */}
-      <section className="mb-8">
-        <div className="bg-white rounded-2xl shadow p-6">
-          <div className="flex items-center gap-2 mb-4">
-            <span className="text-blue-500 text-2xl">ⓘ</span>
-            <span className="font-semibold text-lg">Budget Overview</span>
+      <section className="mb-6">
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <span className="text-blue-500 text-xl">ⓘ</span>
+            <span className="font-semibold text-base text-gray-900 dark:text-gray-100">Budget Overview</span>
           </div>
-          <div className="flex flex-col gap-3 mb-4">
+          <div className="flex flex-col gap-2 mb-3">
             <div className="flex gap-4 text-lg font-semibold">
-              <span>Total Salary: <span className="text-gray-900 font-bold">₹ {Number(totalSalary).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span></span>
-              <span>Allocated: <span className="text-purple-700 font-bold">₹ {Number(totalAllocated).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span></span>
-              <span>Spent: <span className="text-blue-700 font-bold">₹ {Number(totalSpent).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span></span>
-              <span>Unallocated: <span className="text-green-700 font-bold">₹ {Number(unallocated).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span></span>
+              <span className="text-gray-900 dark:text-gray-100">Total Salary: <span className="text-gray-900 dark:text-gray-100 font-bold">₹ {Number(totalSalary).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span></span>
+              <span className="text-gray-900 dark:text-gray-100">Allocated: <span className="text-purple-700 dark:text-purple-400 font-bold">₹ {Number(totalAllocated).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span></span>
+              <span className="text-gray-900 dark:text-gray-100">Spent: <span className="text-blue-700 dark:text-blue-400 font-bold">₹ {Number(totalSpent).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span></span>
+              <span className="text-gray-900 dark:text-gray-100">Unallocated: <span className="text-green-700 dark:text-green-400 font-bold">₹ {Number(unallocated).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span></span>
             </div>
             {safeCarryforward > 0 && (
               <div className="flex items-center gap-2 text-sm">
-                <span className="px-2 py-1 bg-green-50 border border-green-200 rounded text-green-700 font-medium">
+                <span className="px-2 py-1 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-700 rounded text-green-700 dark:text-green-400 font-medium">
                   💰 Base Salary: ₹{Number(safeMonthlyTotal).toLocaleString()}
                 </span>
-                <span className="text-gray-400">+</span>
-                <span className="px-2 py-1 bg-green-100 border border-green-300 rounded text-green-800 font-semibold">
+                <span className="text-gray-400">＋</span>
+                <span className="px-2 py-1 bg-green-100 dark:bg-green-800/30 border border-green-300 dark:border-green-600 rounded text-green-800 dark:text-green-300 font-semibold">
                   ↑ Carryforward: ₹{Number(safeCarryforward).toLocaleString()}
                 </span>
-                <span className="text-gray-400">=</span>
-                <span className="px-2 py-1 bg-gray-100 border border-gray-300 rounded text-gray-800 font-bold">
+                <span className="text-gray-400">＝</span>
+                <span className="px-2 py-1 bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded text-gray-800 dark:text-gray-200 font-bold">
                   Total: ₹{Number(totalSalary).toLocaleString()}
                 </span>
               </div>
@@ -507,7 +538,7 @@ export default function Home() {
           </div>
           
           {/* Three-tier visualization bar */}
-          <div className="relative w-full h-6 bg-gray-200 rounded-full mb-2 overflow-hidden">
+          <div className="relative w-full h-6 bg-gray-200 dark:bg-gray-700 rounded-full mb-2 overflow-hidden">
             {/* Allocated portion (translucent purple overlay) */}
             <div
               className="absolute top-0 left-0 h-6 bg-purple-400 opacity-40 rounded-full transition-all"
@@ -564,7 +595,7 @@ export default function Home() {
           return (
             <div
               key={budget.id}
-              className="relative bg-white rounded-2xl shadow p-5 flex flex-col gap-2 min-h-[180px] hover:shadow-lg transition cursor-pointer group"
+              className="relative bg-white dark:bg-gray-800 rounded-lg shadow p-4 flex flex-col gap-2 min-h-[160px] hover:shadow-lg transition cursor-pointer group"
               onClick={e => {
                 // Only open modal if not clicking the 3-dot menu
                 if (!(e.target as HTMLElement).closest('.budget-menu-btn')) {
@@ -578,11 +609,11 @@ export default function Home() {
               <div className="flex items-center justify-between mb-1">
                 <div className="flex items-center gap-2">
                   <span className={`text-2xl ${meta.color}`}>{meta.icon}</span>
-                  <span className="font-semibold text-lg">{budget.name}</span>
+                  <span className="font-semibold text-lg text-gray-900 dark:text-gray-100">{budget.name}</span>
                 </div>
                 <div className="relative">
                   <button
-                    className="budget-menu-btn text-gray-400 hover:text-gray-600 text-xl px-2 py-1 rounded-full focus:outline-none"
+                    className="budget-menu-btn text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 text-xl px-2 py-1 rounded-full focus:outline-none"
                     onClick={e => {
                       e.stopPropagation();
                       setOpenMenuIndex(openMenuIndex === index ? null : index);
@@ -590,9 +621,9 @@ export default function Home() {
                   >&#8942;</button>
                   {/* Dropdown menu */}
                   {openMenuIndex === index && (
-                    <div className="absolute right-0 mt-2 w-32 bg-white border rounded shadow z-10">
+                    <div className="absolute right-0 mt-2 w-32 bg-white dark:bg-gray-700 border dark:border-gray-600 rounded shadow z-10">
                       <button
-                        className="block w-full text-left px-4 py-2 hover:bg-gray-100"
+                        className="block w-full text-left px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-600 text-gray-900 dark:text-gray-100"
                         onClick={e => {
                           e.stopPropagation();
                           setEditingBudgetIndex(index);
@@ -603,7 +634,7 @@ export default function Home() {
                         }}
                       >Edit Budget</button>
                       <button
-                        className="block w-full text-left px-4 py-2 hover:bg-gray-100 text-red-600"
+                        className="block w-full text-left px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-600 text-red-600 dark:text-red-400"
                         onClick={async e => {
                           e.stopPropagation();
                           if (window.confirm('Are you sure you want to delete this budget?')) {
@@ -625,11 +656,11 @@ export default function Home() {
                   )}
                 </div>
               </div>
-              <div className="font-bold text-lg mb-1">
-                ₹{Number(spent).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})} <span className="font-normal text-gray-500">/ ₹{Number(budget.total).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
-                <span className="block text-xs text-green-700 font-semibold mt-1">Remaining: ₹{Number((safeBudgetTotal - spent)).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+              <div className="font-bold text-lg mb-1 text-gray-900 dark:text-gray-100">
+                ₹{Number(spent).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})} <span className="font-normal text-gray-500 dark:text-gray-400">/ ₹{Number(budget.total).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+                <span className="block text-xs text-green-700 dark:text-green-400 font-semibold mt-1">Remaining: ₹{Number((safeBudgetTotal - spent)).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
               </div>
-              <div className="h-3 w-full bg-gray-200 rounded-full mb-2">
+              <div className="h-3 w-full bg-gray-200 dark:bg-gray-700 rounded-full mb-2">
                 <div
                   className={`h-3 rounded-full transition-all ${meta.bar}`}
                   style={{ width: `${safeBudgetTotal > 0 ? Math.min((spent / safeBudgetTotal) * 100, 100) : 0}%` }}
@@ -640,13 +671,13 @@ export default function Home() {
                 {Math.round(percentUsed)}% of Budget Used
               </div>
               <ul className="text-sm space-y-1">
-                {budgetEntries.slice(0, 3).map((entry, i) => (
+                {budgetEntries.slice(0, 2).map((entry, i) => (
                   <li key={entry.id} className="flex items-center gap-2">
-                    <span className="inline-block w-2 h-2 rounded-full bg-gray-400" />
-                    <span className="text-gray-700">{entry.title}</span>
-                    <span className="ml-2 text-gray-400">{entry.date ? new Date(entry.date).toLocaleDateString() : ''}</span>
-                    <span className="ml-2 text-gray-400 italic">{entry.notes ? `(${entry.notes})` : ''}</span>
-                    <span className="ml-auto font-semibold text-gray-900">₹{Number(entry.amount).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+                    <span className="inline-block w-2 h-2 rounded-full bg-gray-400 dark:bg-gray-500" />
+                    <span className="text-gray-700 dark:text-gray-300">{entry.title}</span>
+                    <span className="ml-2 text-gray-400 dark:text-gray-500">{entry.date ? new Date(entry.date).toLocaleDateString() : ''}</span>
+                    <span className="ml-2 text-gray-400 dark:text-gray-500 italic">{entry.notes ? `(${entry.notes})` : ''}</span>
+                    <span className="ml-auto font-semibold text-gray-900 dark:text-gray-100">₹{Number(entry.amount).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
                   </li>
                 ))}
                 {budgetEntries.length === 0 && (
@@ -661,21 +692,21 @@ export default function Home() {
       {/* Edit Budget Modal (always rendered at root, not inside map) */}
       {editingBudgetIndex !== null && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-                  <div className="bg-white rounded-xl p-6 shadow w-full max-w-sm">
-                    <h2 className="font-semibold mb-4">Edit Budget</h2>
+                  <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow w-full max-w-sm">
+                    <h2 className="font-semibold mb-4 text-gray-900 dark:text-gray-100">Edit Budget</h2>
                     <div className="mb-3">
-                      <label className="block mb-1 font-medium">Budget Name</label>
+                      <label className="block mb-1 font-medium text-gray-900 dark:text-gray-100">Budget Name</label>
                       <input
-                        className="border rounded px-3 py-2 w-full"
+                        className="border dark:border-gray-600 rounded px-3 py-2 w-full bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                         value={budgetNameDraft}
                         onChange={e => setBudgetNameDraft(e.target.value)}
                         placeholder="e.g. Transport, Rent, Investments"
                       />
                     </div>
                     <div className="mb-3">
-                      <label className="block mb-1 font-medium">Budget Type</label>
+                      <label className="block mb-1 font-medium text-gray-900 dark:text-gray-100">Budget Type</label>
                       <select
-                        className="border rounded px-3 py-2 w-full"
+                        className="border dark:border-gray-600 rounded px-3 py-2 w-full bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                         value={budgetTypeDraft}
                         onChange={e => setBudgetTypeDraft(e.target.value)}
                       >
@@ -686,10 +717,10 @@ export default function Home() {
                       </select>
                     </div>
                     <div className="mb-6">
-                      <label className="block mb-1 font-medium">Monthly Allocation (₹)</label>
+                      <label className="block mb-1 font-medium text-gray-900 dark:text-gray-100">Monthly Allocation (₹)</label>
                       <input
                         type="number"
-                        className="border rounded px-3 py-2 w-full"
+                        className="border dark:border-gray-600 rounded px-3 py-2 w-full bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                         value={budgetTotalDraft}
                         onChange={e => setBudgetTotalDraft(Number(e.target.value) || 0)}
                         min={0}
@@ -698,7 +729,7 @@ export default function Home() {
                     <div className="flex justify-end gap-2">
                       <button
                         onClick={() => setEditingBudgetIndex(null)}
-                        className="border px-3 py-1 rounded"
+                        className="border dark:border-gray-600 px-3 py-1 rounded text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700"
                       >Cancel</button>
                       <button
                         onClick={() => {
@@ -717,7 +748,7 @@ export default function Home() {
                             loadBudgetsAndEntries();
                           });
                         }}
-                        className="bg-black text-white px-3 py-1 rounded"
+                        className="bg-black dark:bg-gray-600 text-white px-3 py-1 rounded hover:bg-gray-800 dark:hover:bg-gray-500"
                       >Save</button>
                     </div>
                   </div>
@@ -735,21 +766,21 @@ export default function Home() {
       {/* Add Budget Modal */}
       {showAddBudget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-2xl shadow-lg p-8 w-full max-w-md">
-            <h2 className="font-bold text-xl mb-4">Add New Budget</h2>
+          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-lg p-8 w-full max-w-md">
+            <h2 className="font-bold text-xl mb-4 text-gray-900 dark:text-gray-100">Add New Budget</h2>
             <div className="mb-3">
-              <label className="block mb-1 font-medium">Budget Name</label>
+              <label className="block mb-1 font-medium text-gray-900 dark:text-gray-100">Budget Name</label>
               <input
-                className="border rounded px-3 py-2 w-full"
+                className="border dark:border-gray-600 rounded px-3 py-2 w-full bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                 value={newBudgetName}
                 onChange={e => setNewBudgetName(e.target.value)}
                 placeholder="e.g. Transport, Rent, Investments"
               />
             </div>
             <div className="mb-3">
-              <label className="block mb-1 font-medium">Budget Type</label>
+              <label className="block mb-1 font-medium text-gray-900 dark:text-gray-100">Budget Type</label>
               <select
-                className="border rounded px-3 py-2 w-full"
+                className="border dark:border-gray-600 rounded px-3 py-2 w-full bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                 value={newBudgetType}
                 onChange={e => setNewBudgetType(e.target.value)}
               >
@@ -760,10 +791,10 @@ export default function Home() {
               </select>
             </div>
             <div className="mb-6">
-              <label className="block mb-1 font-medium">Monthly Allocation (₹)</label>
+              <label className="block mb-1 font-medium text-gray-900 dark:text-gray-100">Monthly Allocation (₹)</label>
               <input
                 type="number"
-                className="border rounded px-3 py-2 w-full"
+                className="border dark:border-gray-600 rounded px-3 py-2 w-full bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                 value={newBudgetTotal}
                 onChange={e => setNewBudgetTotal(Number(e.target.value) || 0)}
                 placeholder="e.g. 3000"
@@ -772,7 +803,7 @@ export default function Home() {
             </div>
             <div className="flex justify-end gap-2">
               <button
-                className="px-4 py-2 rounded border"
+                className="px-4 py-2 rounded border dark:border-gray-600 text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700"
                 onClick={() => setShowAddBudget(false)}
               >Cancel</button>
               <button
@@ -805,15 +836,15 @@ export default function Home() {
       {/* Budget Modal */}
       {selectedBudgetIndex !== null && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-lg">
+          <div className="w-full max-w-md rounded-xl bg-white dark:bg-gray-800 p-6 shadow-lg">
             {/* Header */}
             <div className="flex items-center justify-between mb-4">
-              <h2 className="font-semibold">
+              <h2 className="font-semibold text-gray-900 dark:text-gray-100">
                 {budgets[selectedBudgetIndex].name}
               </h2>
               <button
                 onClick={() => setSelectedBudgetIndex(null)}
-                className="text-gray-500 hover:text-gray-700 text-lg"
+                className="text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 text-lg"
               >
                 ✕
               </button>
@@ -825,19 +856,19 @@ export default function Home() {
                 {getBudgetEntries(budgets[selectedBudgetIndex].id).map((entry) => (
                 <li
                   key={entry.id}
-                  className="flex flex-col gap-1 rounded-md bg-gray-50 p-2"
+                  className="flex flex-col gap-1 rounded-md bg-gray-50 dark:bg-gray-700 p-2"
                 >
                   {editingEntry && editingEntry.id === entry.id ? (
                     <div className="flex flex-col gap-2">
                       <div className="flex gap-2">
                         <input
-                          className="border rounded px-2 py-1 w-full"
+                          className="border dark:border-gray-600 rounded px-2 py-1 w-full bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
                           value={editingEntry.title}
                           onChange={e => setEditingEntry({...editingEntry, title: e.target.value})}
                         />
                         <input
                           type="number"
-                          className="border rounded px-2 py-1 w-24"
+                          className="border dark:border-gray-600 rounded px-2 py-1 w-24 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
                           value={editingEntry.amount}
                           onChange={e => setEditingEntry({...editingEntry, amount: Number(e.target.value) || 0})}
                         />
@@ -845,12 +876,12 @@ export default function Home() {
                       <div className="flex gap-2">
                         <input
                           type="date"
-                          className="border rounded px-2 py-1 w-40"
+                          className="border dark:border-gray-600 rounded px-2 py-1 w-40 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
                           value={editingEntry.date || ''}
                           onChange={e => setEditingEntry({...editingEntry, date: e.target.value})}
                         />
                         <input
-                          className="border rounded px-2 py-1 w-full"
+                          className="border dark:border-gray-600 rounded px-2 py-1 w-full bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
                           placeholder="Notes"
                           value={editingEntry.notes || ''}
                           onChange={e => setEditingEntry({...editingEntry, notes: e.target.value})}
@@ -883,9 +914,9 @@ export default function Home() {
                   ) : (
                     <div className="flex flex-col gap-1">
                       <div className="flex items-center gap-2">
-                        <span className="font-semibold text-gray-900">{entry.title}</span>
-                        <span className="ml-2 text-gray-400">{entry.date ? new Date(entry.date).toLocaleDateString() : ''}</span>
-                        <span className="ml-auto font-semibold text-gray-900">₹{entry.amount.toLocaleString()}</span>
+                        <span className="font-semibold text-gray-900 dark:text-gray-100">{entry.title}</span>
+                        <span className="ml-2 text-gray-400 dark:text-gray-500">{entry.date ? new Date(entry.date).toLocaleDateString() : ''}</span>
+                        <span className="ml-auto font-semibold text-gray-900 dark:text-gray-100">₹{entry.amount.toLocaleString()}</span>
                       </div>
                       {entry.notes && (
                         <div className="text-xs text-gray-500 italic pl-1">{entry.notes}</div>
@@ -911,20 +942,20 @@ export default function Home() {
             </div>
 
             {/* ➕ Add Entry */}
-            <div className="border-t pt-4">
-              <h3 className="font-semibold mb-2">Add Entry</h3>
+            <div className="border-t dark:border-gray-700 pt-4">
+              <h3 className="font-semibold mb-2 text-gray-900 dark:text-gray-100">Add Entry</h3>
 
               <div className="flex flex-col gap-2">
                 <div className="flex gap-2">
                   <input
-                    className="border rounded px-2 py-1 w-full"
+                    className="border dark:border-gray-600 rounded px-2 py-1 w-full bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                     placeholder="Title"
                     value={newTitle}
                     onChange={(e) => setNewTitle(e.target.value)}
                   />
                   <input
                     type="number"
-                    className="border rounded px-2 py-1 w-24"
+                    className="border dark:border-gray-600 rounded px-2 py-1 w-24 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                     placeholder="Amount"
                     value={newAmount}
                     onChange={(e) => setNewAmount(Number(e.target.value) || 0)}
@@ -933,12 +964,12 @@ export default function Home() {
                 <div className="flex gap-2 mt-1">
                   <input
                     type="date"
-                    className="border rounded px-2 py-1 w-40"
+                    className="border dark:border-gray-600 rounded px-2 py-1 w-40 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                     value={newDate}
                     onChange={e => setNewDate(e.target.value)}
                   />
                   <input
-                    className="border rounded px-2 py-1 w-full"
+                    className="border dark:border-gray-600 rounded px-2 py-1 w-full bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                     placeholder="Notes (optional)"
                     value={newNotes}
                     onChange={e => setNewNotes(e.target.value)}
