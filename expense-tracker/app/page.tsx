@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import { UserButton } from '@clerk/nextjs';
+import * as XLSX from 'xlsx';
 
 /* =======================
    Types
@@ -37,6 +38,45 @@ const months = [
 ======================= */
 
 export default function Home() {
+        // Dark mode and menu state
+        const [isDarkMode, setIsDarkMode] = useState(false);
+        const [showMenu, setShowMenu] = useState(false);
+        
+        // Load dark mode preference from localStorage
+        React.useEffect(() => {
+          const savedMode = localStorage.getItem('darkMode');
+          if (savedMode === 'true') {
+            setIsDarkMode(true);
+            document.documentElement.classList.add('dark');
+          } else {
+            document.documentElement.classList.remove('dark');
+          }
+        }, []);
+        
+        // Toggle dark mode
+        const toggleDarkMode = () => {
+          const newMode = !isDarkMode;
+          setIsDarkMode(newMode);
+          localStorage.setItem('darkMode', String(newMode));
+          if (newMode) {
+            document.documentElement.classList.add('dark');
+          } else {
+            document.documentElement.classList.remove('dark');
+          }
+        };
+        
+        // Close menu when clicking outside
+        React.useEffect(() => {
+          const handleClickOutside = (event: MouseEvent) => {
+            const target = event.target as HTMLElement;
+            if (showMenu && !target.closest('.menu-container')) {
+              setShowMenu(false);
+            }
+          };
+          document.addEventListener('mousedown', handleClickOutside);
+          return () => document.removeEventListener('mousedown', handleClickOutside);
+        }, [showMenu]);
+        
         // State for add entry modal
         const [showAddEntry, setShowAddEntry] = useState(false);
         const [addEntryBudgetIndex, setAddEntryBudgetIndex] = useState<number | null>(null);
@@ -71,8 +111,8 @@ export default function Home() {
      Month / Year Selection
   ======================= */
 
-  const [selectedMonth, setSelectedMonth] = useState(0); // 0 = Jan
-  const [selectedYear, setSelectedYear] = useState(2026);
+  const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth()); // Current month (0-11)
+  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
 
   /* =======================
      All Data (Key Change)
@@ -81,7 +121,8 @@ export default function Home() {
   // Backend state
   const [budgets, setBudgets] = useState<Budget[]>([]);
   const [entries, setEntries] = useState<Entry[]>([]);
-  const [monthlyTotal, setMonthlyTotal] = useState<number>(0);
+  const [monthlyTotal, setMonthlyTotal] = useState<number>(0); // Base salary for this month
+  const [carryforward, setCarryforward] = useState<number>(0); // Carryforward from previous month
   const [loading, setLoading] = useState(false);
 
   // Load budgets and entries for selected month/year
@@ -99,8 +140,60 @@ export default function Home() {
       allEntries = allEntries.concat(eData);
     }
     setEntries(allEntries);
-    // Calculate monthly total as sum of all budget allocations
-    setMonthlyTotal(budgetsData.reduce((sum, b) => sum + (Number(b.total) || 0), 0));
+    // Fetch monthly salary
+    try {
+      const salaryRes = await fetch(`/api/salary?month=${selectedMonth + 1}&year=${selectedYear}`);
+      if (salaryRes.ok) {
+        const salaryData = await salaryRes.json();
+        setMonthlyTotal(Number(salaryData.salary) || 0);
+      } else {
+        setMonthlyTotal(0);
+      }
+    } catch (error) {
+      console.log('Salary table not yet created, defaulting to 0');
+      setMonthlyTotal(0);
+    }
+    
+    // Calculate carryforward from previous month
+    let prevMonth = selectedMonth - 1;
+    let prevYear = selectedYear;
+    if (prevMonth < 0) {
+      prevMonth = 11;
+      prevYear = selectedYear - 1;
+    }
+    
+    try {
+      // Fetch previous month's budgets
+      const prevBudgetsRes = await fetch(`/api/budgets?month=${prevMonth + 1}&year=${prevYear}`);
+      const prevBudgets: Budget[] = await prevBudgetsRes.json();
+      
+      // Fetch previous month's entries
+      let prevEntries: Entry[] = [];
+      for (const b of prevBudgets) {
+        const eres = await fetch(`/api/entries?budget_id=${b.id}`);
+        const eData: Entry[] = await eres.json();
+        prevEntries = prevEntries.concat(eData);
+      }
+      
+      // Fetch previous month's salary
+      const prevSalaryRes = await fetch(`/api/salary?month=${prevMonth + 1}&year=${prevYear}`);
+      let prevSalary = 0;
+      if (prevSalaryRes.ok) {
+        const prevSalaryData = await prevSalaryRes.json();
+        prevSalary = Number(prevSalaryData.salary) || 0;
+      }
+      
+      // Calculate previous month's total spent
+      const prevSpent = prevEntries.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+      
+      // Carryforward = Previous month's remaining (salary - spent)
+      const carryforwardAmount = Math.max(0, prevSalary - prevSpent);
+      setCarryforward(carryforwardAmount);
+    } catch (error) {
+      console.log('Could not calculate carryforward, defaulting to 0');
+      setCarryforward(0);
+    }
+    
     setLoading(false);
   }
 
@@ -125,9 +218,79 @@ export default function Home() {
   const getBudgetEntries = (budgetId: number) => entries.filter(e => e.budget_id === budgetId);
   const calculateSpent = (budgetId: number) => getBudgetEntries(budgetId).reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
   const totalSpent = entries.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
-  const safeMonthlyTotal = isNaN(monthlyTotal) ? 0 : monthlyTotal;
+  const totalAllocated = budgets.reduce((sum, b) => sum + (Number(b.total) || 0), 0);
+  const safeMonthlyTotal = isNaN(monthlyTotal) ? 0 : monthlyTotal; // Base salary
+  const safeCarryforward = isNaN(carryforward) ? 0 : carryforward;
+  const totalSalary = safeMonthlyTotal + safeCarryforward; // Total = Base + Carryforward
+  const safeTotalAllocated = isNaN(totalAllocated) ? 0 : totalAllocated;
   const safeTotalSpent = isNaN(totalSpent) ? 0 : totalSpent;
-  const remaining = safeMonthlyTotal - safeTotalSpent;
+  const remaining = totalSalary - safeTotalSpent;
+  const unallocated = totalSalary - safeTotalAllocated;
+
+  // Download dashboard data as Excel
+  function downloadExcel() {
+    const workbook = XLSX.utils.book_new();
+    
+    // Summary sheet
+    const summaryData = [
+      ['Personal Finance Tracker'],
+      ['Month:', months[selectedMonth]],
+      ['Year:', selectedYear],
+      [],
+      ['Base Salary:', monthlyTotal],
+      ['Carryforward from Previous Month:', carryforward],
+      ['Total Salary:', totalSalary],
+      ['Total Allocated:', totalAllocated],
+      ['Total Spent:', totalSpent],
+      ['Unallocated:', unallocated],
+      ['Remaining (will carryforward):', remaining],
+      [],
+      ['Budget Summary'],
+      ['Budget Name', 'Type', 'Allocated', 'Spent', 'Remaining', 'Progress %']
+    ];
+
+    budgets.forEach(budget => {
+      const budgetEntries = getBudgetEntries(budget.id);
+      const spent = budgetEntries.reduce((sum, e) => sum + e.amount, 0);
+      const budgetRemaining = budget.total - spent;
+      const progress = budget.total > 0 ? (spent / budget.total * 100).toFixed(1) : '0';
+      
+      summaryData.push([
+        budget.name,
+        budget.type,
+        budget.total,
+        spent,
+        budgetRemaining,
+        progress + '%'
+      ]);
+    });
+
+    const summarySheet = XLSX.utils.aoa_to_sheet(summaryData);
+    XLSX.utils.book_append_sheet(workbook, summarySheet, 'Summary');
+
+    // Detailed entries sheet
+    const entriesData = [['Budget', 'Entry Title', 'Amount', 'Date', 'Notes']];
+    
+    budgets.forEach(budget => {
+      const budgetEntries = getBudgetEntries(budget.id);
+      budgetEntries.forEach(entry => {
+        entriesData.push([
+          budget.name,
+          entry.title,
+          entry.amount.toString(),
+          entry.date || '',
+          entry.notes || ''
+        ]);
+      });
+    });
+
+    const entriesSheet = XLSX.utils.aoa_to_sheet(entriesData);
+    XLSX.utils.book_append_sheet(workbook, entriesSheet, 'All Entries');
+
+    // Download file
+    const fileName = `Finance_Tracker_${months[selectedMonth]}_${selectedYear}.xlsx`;
+    XLSX.writeFile(workbook, fileName);
+  }
 
   /* =======================
      UI
@@ -135,7 +298,7 @@ export default function Home() {
 
 
   return (
-    <main className="min-h-screen bg-[#f3f6fb] p-6 text-gray-900">
+    <main className="min-h-screen bg-[#f3f6fb] dark:bg-gray-900 p-6 text-gray-900 dark:text-gray-100 transition-colors duration-200">
       {/* Floating Add Entry Button */}
       <button
         className="fixed bottom-28 right-10 bg-green-600 hover:bg-green-700 text-white rounded-full shadow-lg px-6 py-4 text-lg font-semibold z-50 flex items-center gap-2"
@@ -154,12 +317,12 @@ export default function Home() {
       {/* Add Entry Modal */}
       {showAddEntry && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-2xl shadow-lg p-8 w-full max-w-md">
-            <h2 className="font-bold text-xl mb-4">Add Entry</h2>
+          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-lg p-8 w-full max-w-md">
+            <h2 className="font-bold text-xl mb-4 text-gray-900 dark:text-white">Add Entry</h2>
             <div className="mb-3">
-              <label className="block mb-1 font-medium">Budget</label>
+              <label className="block mb-1 font-medium text-gray-900 dark:text-gray-200">Budget</label>
               <select
-                className="border rounded px-3 py-2 w-full"
+                className="border dark:border-gray-600 rounded px-3 py-2 w-full bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                 value={addEntryBudgetIndex ?? ''}
                 onChange={e => setAddEntryBudgetIndex(Number(e.target.value))}
               >
@@ -169,37 +332,37 @@ export default function Home() {
               </select>
             </div>
             <div className="mb-3">
-              <label className="block mb-1 font-medium">Title</label>
+              <label className="block mb-1 font-medium text-gray-900 dark:text-gray-200">Title</label>
               <input
-                className="border rounded px-3 py-2 w-full"
+                className="border dark:border-gray-600 rounded px-3 py-2 w-full bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                 value={addEntryTitle}
                 onChange={e => setAddEntryTitle(e.target.value)}
                 placeholder="e.g. Uber, Anime Con"
               />
             </div>
             <div className="mb-3">
-              <label className="block mb-1 font-medium">Amount (₹)</label>
+              <label className="block mb-1 font-medium text-gray-900 dark:text-gray-200">Amount (₹)</label>
               <input
                 type="number"
-                className="border rounded px-3 py-2 w-full"
+                className="border dark:border-gray-600 rounded px-3 py-2 w-full bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                 value={addEntryAmount}
                 onChange={e => setAddEntryAmount(Number(e.target.value) || 0)}
                 min={0}
               />
             </div>
             <div className="mb-3">
-              <label className="block mb-1 font-medium">Date</label>
+              <label className="block mb-1 font-medium text-gray-900 dark:text-gray-200">Date</label>
               <input
                 type="date"
-                className="border rounded px-3 py-2 w-full"
+                className="border dark:border-gray-600 rounded px-3 py-2 w-full bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                 value={addEntryDate}
                 onChange={e => setAddEntryDate(e.target.value)}
               />
             </div>
             <div className="mb-6">
-              <label className="block mb-1 font-medium">Notes</label>
+              <label className="block mb-1 font-medium text-gray-900 dark:text-gray-200">Notes</label>
               <textarea
-                className="border rounded px-3 py-2 w-full"
+                className="border dark:border-gray-600 rounded px-3 py-2 w-full bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                 value={addEntryNotes}
                 onChange={e => setAddEntryNotes(e.target.value)}
                 placeholder="Optional notes"
@@ -207,7 +370,7 @@ export default function Home() {
             </div>
             <div className="flex justify-end gap-2">
               <button
-                className="px-4 py-2 rounded border"
+                className="px-4 py-2 rounded border dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-900 dark:text-white"
                 onClick={() => setShowAddEntry(false)}
               >Cancel</button>
               <button
@@ -237,23 +400,39 @@ export default function Home() {
       {/* Header Bar */}
       <header className="flex flex-col gap-4 mb-8">
         <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-bold tracking-tight">Personal Finance Tracker</h1>
+          <h1 className="text-2xl font-bold tracking-tight dark:text-white">Personal Finance Tracker</h1>
           <div className="flex items-center gap-4">
-            <span className="font-medium text-gray-700">Total Monthly Budget:</span>
-            <span className="font-bold text-gray-900">₹ {Number(safeMonthlyTotal).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+            <span className="font-medium text-gray-700 dark:text-gray-300">Total Salary:</span>
+            <span className="font-bold text-gray-900 dark:text-white">₹ {Number(totalSalary).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+            {safeCarryforward > 0 && (
+              <span className="inline-flex items-center gap-1 px-2 py-1 bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300 rounded-full text-xs font-semibold">
+                ↑ ₹{Number(safeCarryforward).toLocaleString()} carried forward
+              </span>
+            )}
             <button
-              className="ml-2 text-gray-500 hover:text-gray-700 text-base px-2 py-1 rounded"
+              className="ml-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 text-base px-2 py-1 rounded"
               onClick={() => {
                 setMonthlyDraft(monthlyTotal);
                 setEditingMonthly(true);
               }}
-              title="Edit Monthly Budget"
+              title="Edit Base Salary"
             >✏️</button>
-            <span className="font-medium text-gray-700">| Spent:</span>
-            <span className="font-bold text-blue-700">₹ {Number(safeTotalSpent).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
-            <span className="font-medium text-gray-700">| Remaining:</span>
-            <span className="font-bold text-green-700">₹ {Number(remaining).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
-            <div className="ml-4">
+            <span className="font-medium text-gray-700 dark:text-gray-300">| Allocated:</span>
+            <span className="font-bold text-purple-700 dark:text-purple-400">₹ {Number(safeTotalAllocated).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+            <span className="font-medium text-gray-700 dark:text-gray-300">| Spent:</span>
+            <span className="font-bold text-blue-700 dark:text-blue-400">₹ {Number(safeTotalSpent).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+            <span className="font-medium text-gray-700 dark:text-gray-300">| Unallocated:</span>
+            <span className="font-bold text-green-700 dark:text-green-400">₹ {Number(unallocated).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+            <button
+              className="ml-4 p-2 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors relative menu-container"
+              onClick={() => setShowMenu(!showMenu)}
+              title="Menu"
+            >
+              <svg className="w-6 h-6 text-gray-700 dark:text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+              </svg>
+            </button>
+            <div className="ml-2">
               <UserButton afterSignOutUrl="/" />
             </div>
           </div>
@@ -262,7 +441,7 @@ export default function Home() {
           <select
             value={selectedMonth}
             onChange={(e) => setSelectedMonth(Number(e.target.value))}
-            className="border px-3 py-2 rounded-lg bg-white shadow-sm text-lg font-medium"
+            className="border dark:border-gray-600 px-3 py-2 rounded-lg bg-white dark:bg-gray-800 shadow-sm text-lg font-medium dark:text-white"
           >
             {months.map((m, i) => (
               <option key={m} value={i}>
@@ -273,7 +452,7 @@ export default function Home() {
           <select
             value={selectedYear}
             onChange={(e) => setSelectedYear(Number(e.target.value))}
-            className="border px-3 py-2 rounded-lg bg-white shadow-sm text-lg font-medium"
+            className="border dark:border-gray-600 px-3 py-2 rounded-lg bg-white dark:bg-gray-800 shadow-sm text-lg font-medium dark:text-white"
           >
             <option value={2026}>2026</option>
             <option value={2027}>2027</option>
@@ -281,14 +460,64 @@ export default function Home() {
         </div>
       </header>
 
+      {/* Menu Dropdown */}
+      {showMenu && (
+        <div className="fixed top-20 right-6 z-50 bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-gray-200 dark:border-gray-700 w-64 overflow-hidden menu-container">
+          <div className="p-2">
+            <button
+              className="w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors text-left"
+              onClick={() => {
+                downloadExcel();
+                setShowMenu(false);
+              }}
+            >
+              <span className="text-2xl">📊</span>
+              <div className="flex-1">
+                <div className="font-semibold text-gray-900 dark:text-white">Download Excel</div>
+                <div className="text-xs text-gray-500 dark:text-gray-400">Export your data</div>
+              </div>
+            </button>
+            <button
+              className="w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors text-left"
+              onClick={(e) => {
+                e.stopPropagation();
+                toggleDarkMode();
+              }}
+            >
+              <span className="text-2xl">{isDarkMode ? '☀️' : '🌙'}</span>
+              <div className="flex-1">
+                <div className="font-semibold text-gray-900 dark:text-white">{isDarkMode ? 'Light Mode' : 'Dark Mode'}</div>
+                <div className="text-xs text-gray-500 dark:text-gray-400">Toggle theme</div>
+              </div>
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Edit Monthly Budget Modal */}
       {editingMonthly && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-xl p-6 shadow w-full max-w-sm">
-            <h2 className="font-semibold mb-4">Edit Monthly Budget</h2>
+          <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-xl w-full max-w-sm">
+            <h2 className="font-semibold mb-4 text-gray-900 dark:text-white">Edit Base Salary for {months[selectedMonth]}</h2>
+            {safeCarryforward > 0 && (
+              <div className="mb-4 p-3 bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-700 rounded-lg text-sm">
+                <div className="flex justify-between mb-1">
+                  <span className="text-gray-600 dark:text-gray-300">Carryforward from previous month:</span>
+                  <span className="font-semibold text-green-700 dark:text-green-400">₹{Number(safeCarryforward).toLocaleString()}</span>
+                </div>
+                <div className="flex justify-between mb-1">
+                  <span className="text-gray-600 dark:text-gray-300">Current base salary:</span>
+                  <span className="font-semibold text-gray-700 dark:text-gray-200">₹{Number(monthlyTotal).toLocaleString()}</span>
+                </div>
+                <div className="flex justify-between pt-2 border-t border-green-300 dark:border-green-700 mt-2">
+                  <span className="font-semibold text-gray-800 dark:text-gray-200">Total Available:</span>
+                  <span className="font-bold text-gray-900 dark:text-white">₹{Number(totalSalary).toLocaleString()}</span>
+                </div>
+              </div>
+            )}
             <input
               type="number"
-              className="border rounded px-2 py-1 w-full mb-4"
+              className="border dark:border-gray-600 rounded px-2 py-1 w-full mb-4 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
               value={monthlyDraft}
               onChange={e => setMonthlyDraft(Number(e.target.value) || 0)}
               min={0}
@@ -296,11 +525,22 @@ export default function Home() {
             <div className="flex justify-end gap-2">
               <button
                 onClick={() => setEditingMonthly(false)}
-                className="border px-3 py-1 rounded"
+                className="border dark:border-gray-600 px-3 py-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 dark:text-white"
               >Cancel</button>
               <button
-                onClick={() => {
-                  setMonthlyTotal(Number(monthlyDraft) || 0);
+                onClick={async () => {
+                  const newSalary = Number(monthlyDraft) || 0;
+                  setMonthlyTotal(newSalary);
+                  // Save to database
+                  await fetch('/api/salary', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      month: selectedMonth + 1,
+                      year: selectedYear,
+                      salary: newSalary,
+                    }),
+                  });
                   setEditingMonthly(false);
                 }}
                 className="bg-black text-white px-3 py-1 rounded"
@@ -312,28 +552,67 @@ export default function Home() {
 
       {/* Overview Card */}
       <section className="mb-8">
-        <div className="bg-white rounded-2xl shadow p-6">
+        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-lg p-6">
           <div className="flex items-center gap-2 mb-4">
-            <span className="text-blue-500 text-2xl">ⓘ</span>
-            <span className="font-semibold text-lg">Overview</span>
+            <span className="text-blue-500 dark:text-blue-400 text-2xl">ⓘ</span>
+            <span className="font-semibold text-lg dark:text-white">Budget Overview</span>
           </div>
-          <div className="flex flex-col md:flex-row md:items-center md:gap-8 mb-2">
+          <div className="flex flex-col gap-3 mb-4">
             <div className="flex gap-4 text-lg font-semibold">
-              <span>Total Budget: <span className="text-gray-900 font-bold">₹ {Number(monthlyTotal).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span></span>
-              <span>Spent: <span className="text-blue-700 font-bold">₹ {Number(totalSpent).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span></span>
-              <span>Remaining: <span className="text-green-700 font-bold">₹ {Number(remaining).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span></span>
+              <span className="dark:text-gray-200">Total Salary: <span className="text-gray-900 dark:text-white font-bold">₹ {Number(totalSalary).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span></span>
+              <span className="dark:text-gray-200">Allocated: <span className="text-purple-700 dark:text-purple-400 font-bold">₹ {Number(totalAllocated).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span></span>
+              <span className="dark:text-gray-200">Spent: <span className="text-blue-700 dark:text-blue-400 font-bold">₹ {Number(totalSpent).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span></span>
+              <span className="dark:text-gray-200">Unallocated: <span className="text-green-700 dark:text-green-400 font-bold">₹ {Number(unallocated).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span></span>
             </div>
+            {safeCarryforward > 0 && (
+              <div className="flex items-center gap-2 text-sm">
+                <span className="px-2 py-1 bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-700 rounded text-green-700 dark:text-green-400 font-medium">
+                  💰 Base Salary: ₹{Number(safeMonthlyTotal).toLocaleString()}
+                </span>
+                <span className="text-gray-400 dark:text-gray-500">+</span>
+                <span className="px-2 py-1 bg-green-100 dark:bg-green-800/40 border border-green-300 dark:border-green-600 rounded text-green-800 dark:text-green-300 font-semibold">
+                  ↑ Carryforward: ₹{Number(safeCarryforward).toLocaleString()}
+                </span>
+                <span className="text-gray-400 dark:text-gray-500">=</span>
+                <span className="px-2 py-1 bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded text-gray-800 dark:text-gray-100 font-bold">
+                  Total: ₹{Number(totalSalary).toLocaleString()}
+                </span>
+              </div>
+            )}
           </div>
-          <div className="w-full h-4 bg-gray-200 rounded-full mb-2">
+          
+          {/* Three-tier visualization bar */}
+          <div className="relative w-full h-6 bg-gray-200 rounded-full mb-2 overflow-hidden">
+            {/* Allocated portion (translucent purple overlay) */}
             <div
-              className={`h-4 rounded-full transition-all ${safeMonthlyTotal > 0 && safeTotalSpent / safeMonthlyTotal > 1 ? 'bg-red-500' : 'bg-green-500'}`}
+              className="absolute top-0 left-0 h-6 bg-purple-400 opacity-40 rounded-full transition-all"
               style={{
-                width: `${safeMonthlyTotal > 0 ? Math.min((safeTotalSpent / safeMonthlyTotal) * 100, 100) : 0}%`,
+                width: `${totalSalary > 0 ? Math.min((safeTotalAllocated / totalSalary) * 100, 100) : 0}%`,
+              }}
+            />
+            {/* Spent portion (solid color filling) */}
+            <div
+              className={`absolute top-0 left-0 h-6 rounded-full transition-all ${totalSalary > 0 && safeTotalSpent / totalSalary > 1 ? 'bg-red-500' : 'bg-blue-500'}`}
+              style={{
+                width: `${totalSalary > 0 ? Math.min((safeTotalSpent / totalSalary) * 100, 100) : 0}%`,
               }}
             />
           </div>
-          <div className="text-center text-gray-600 text-sm font-medium">
-            {safeMonthlyTotal > 0 ? Math.round((safeTotalSpent / safeMonthlyTotal) * 100) : 0}% of Budget Used
+          
+          {/* Legend */}
+          <div className="flex justify-center gap-6 text-sm mt-3">
+            <div className="flex items-center gap-2">
+              <div className="w-4 h-4 bg-gray-200 rounded"></div>
+              <span className="text-gray-600">Total Salary</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-4 h-4 bg-purple-400 opacity-40 rounded"></div>
+              <span className="text-gray-600">Allocated ({totalSalary > 0 ? Math.round((safeTotalAllocated / totalSalary) * 100) : 0}%)</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-4 h-4 bg-blue-500 rounded"></div>
+              <span className="text-gray-600">Spent ({totalSalary > 0 ? Math.round((safeTotalSpent / totalSalary) * 100) : 0}%)</span>
+            </div>
           </div>
         </div>
       </section>
@@ -360,7 +639,7 @@ export default function Home() {
           return (
             <div
               key={budget.id}
-              className="relative bg-white rounded-2xl shadow p-5 flex flex-col gap-2 min-h-[180px] hover:shadow-lg transition cursor-pointer group"
+              className="relative bg-white dark:bg-gray-800 rounded-2xl shadow-lg p-5 flex flex-col gap-2 min-h-[180px] hover:shadow-xl transition cursor-pointer group"
               onClick={e => {
                 // Only open modal if not clicking the 3-dot menu
                 if (!(e.target as HTMLElement).closest('.budget-menu-btn')) {
@@ -457,21 +736,21 @@ export default function Home() {
       {/* Edit Budget Modal (always rendered at root, not inside map) */}
       {editingBudgetIndex !== null && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-                  <div className="bg-white rounded-xl p-6 shadow w-full max-w-sm">
-                    <h2 className="font-semibold mb-4">Edit Budget</h2>
+                  <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow w-full max-w-sm">
+                    <h2 className="font-semibold mb-4 text-gray-900 dark:text-white">Edit Budget</h2>
                     <div className="mb-3">
-                      <label className="block mb-1 font-medium">Budget Name</label>
+                      <label className="block mb-1 font-medium text-gray-900 dark:text-gray-200">Budget Name</label>
                       <input
-                        className="border rounded px-3 py-2 w-full"
+                        className="border dark:border-gray-600 rounded px-3 py-2 w-full bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                         value={budgetNameDraft}
                         onChange={e => setBudgetNameDraft(e.target.value)}
                         placeholder="e.g. Transport, Rent, Investments"
                       />
                     </div>
                     <div className="mb-3">
-                      <label className="block mb-1 font-medium">Budget Type</label>
+                      <label className="block mb-1 font-medium text-gray-900 dark:text-gray-200">Budget Type</label>
                       <select
-                        className="border rounded px-3 py-2 w-full"
+                        className="border dark:border-gray-600 rounded px-3 py-2 w-full bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                         value={budgetTypeDraft}
                         onChange={e => setBudgetTypeDraft(e.target.value)}
                       >
@@ -482,10 +761,10 @@ export default function Home() {
                       </select>
                     </div>
                     <div className="mb-6">
-                      <label className="block mb-1 font-medium">Monthly Allocation (₹)</label>
+                      <label className="block mb-1 font-medium text-gray-900 dark:text-gray-200">Monthly Allocation (₹)</label>
                       <input
                         type="number"
-                        className="border rounded px-3 py-2 w-full"
+                        className="border dark:border-gray-600 rounded px-3 py-2 w-full bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                         value={budgetTotalDraft}
                         onChange={e => setBudgetTotalDraft(Number(e.target.value) || 0)}
                         min={0}
@@ -531,21 +810,21 @@ export default function Home() {
       {/* Add Budget Modal */}
       {showAddBudget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-2xl shadow-lg p-8 w-full max-w-md">
-            <h2 className="font-bold text-xl mb-4">Add New Budget</h2>
+          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-lg p-8 w-full max-w-md">
+            <h2 className="font-bold text-xl mb-4 text-gray-900 dark:text-white">Add New Budget</h2>
             <div className="mb-3">
-              <label className="block mb-1 font-medium">Budget Name</label>
+              <label className="block mb-1 font-medium text-gray-900 dark:text-gray-200">Budget Name</label>
               <input
-                className="border rounded px-3 py-2 w-full"
+                className="border dark:border-gray-600 rounded px-3 py-2 w-full bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                 value={newBudgetName}
                 onChange={e => setNewBudgetName(e.target.value)}
                 placeholder="e.g. Transport, Rent, Investments"
               />
             </div>
             <div className="mb-3">
-              <label className="block mb-1 font-medium">Budget Type</label>
+              <label className="block mb-1 font-medium text-gray-900 dark:text-gray-200">Budget Type</label>
               <select
-                className="border rounded px-3 py-2 w-full"
+                className="border dark:border-gray-600 rounded px-3 py-2 w-full bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                 value={newBudgetType}
                 onChange={e => setNewBudgetType(e.target.value)}
               >
@@ -556,10 +835,10 @@ export default function Home() {
               </select>
             </div>
             <div className="mb-6">
-              <label className="block mb-1 font-medium">Monthly Allocation (₹)</label>
+              <label className="block mb-1 font-medium text-gray-900 dark:text-gray-200">Monthly Allocation (₹)</label>
               <input
                 type="number"
-                className="border rounded px-3 py-2 w-full"
+                className="border dark:border-gray-600 rounded px-3 py-2 w-full bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                 value={newBudgetTotal}
                 onChange={e => setNewBudgetTotal(Number(e.target.value) || 0)}
                 placeholder="e.g. 3000"
@@ -568,7 +847,7 @@ export default function Home() {
             </div>
             <div className="flex justify-end gap-2">
               <button
-                className="px-4 py-2 rounded border"
+                className="px-4 py-2 rounded border dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-900 dark:text-white"
                 onClick={() => setShowAddBudget(false)}
               >Cancel</button>
               <button
@@ -601,38 +880,39 @@ export default function Home() {
       {/* Budget Modal */}
       {selectedBudgetIndex !== null && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-lg">
+          <div className="w-full max-w-md rounded-xl bg-white dark:bg-gray-800 p-6 shadow-lg">
             {/* Header */}
             <div className="flex items-center justify-between mb-4">
-              <h2 className="font-semibold">
+              <h2 className="font-semibold text-gray-900 dark:text-white">
                 {budgets[selectedBudgetIndex].name}
               </h2>
               <button
                 onClick={() => setSelectedBudgetIndex(null)}
-                className="text-gray-500 hover:text-gray-700 text-lg"
+                className="text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 text-lg"
               >
                 ✕
               </button>
             </div>
 
             {/* Entries */}
-            <ul className="space-y-2 mb-4">
-              {getBudgetEntries(budgets[selectedBudgetIndex].id).map((entry) => (
+            <div className="max-h-96 overflow-y-auto mb-4">
+              <ul className="space-y-2">
+                {getBudgetEntries(budgets[selectedBudgetIndex].id).map((entry) => (
                 <li
                   key={entry.id}
-                  className="flex flex-col gap-1 rounded-md bg-gray-50 p-2"
+                  className="flex flex-col gap-1 rounded-md bg-gray-50 dark:bg-gray-700 p-2"
                 >
                   {editingEntry && editingEntry.id === entry.id ? (
                     <div className="flex flex-col gap-2">
                       <div className="flex gap-2">
                         <input
-                          className="border rounded px-2 py-1 w-full"
+                          className="border dark:border-gray-600 rounded px-2 py-1 w-full bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                           value={editingEntry.title}
                           onChange={e => setEditingEntry({...editingEntry, title: e.target.value})}
                         />
                         <input
                           type="number"
-                          className="border rounded px-2 py-1 w-24"
+                          className="border dark:border-gray-600 rounded px-2 py-1 w-24 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                           value={editingEntry.amount}
                           onChange={e => setEditingEntry({...editingEntry, amount: Number(e.target.value) || 0})}
                         />
@@ -640,12 +920,12 @@ export default function Home() {
                       <div className="flex gap-2">
                         <input
                           type="date"
-                          className="border rounded px-2 py-1 w-40"
+                          className="border dark:border-gray-600 rounded px-2 py-1 w-40 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                           value={editingEntry.date || ''}
                           onChange={e => setEditingEntry({...editingEntry, date: e.target.value})}
                         />
                         <input
-                          className="border rounded px-2 py-1 w-full"
+                          className="border dark:border-gray-600 rounded px-2 py-1 w-full bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                           placeholder="Notes"
                           value={editingEntry.notes || ''}
                           onChange={e => setEditingEntry({...editingEntry, notes: e.target.value})}
@@ -678,12 +958,12 @@ export default function Home() {
                   ) : (
                     <div className="flex flex-col gap-1">
                       <div className="flex items-center gap-2">
-                        <span className="font-semibold text-gray-900">{entry.title}</span>
-                        <span className="ml-2 text-gray-400">{entry.date ? new Date(entry.date).toLocaleDateString() : ''}</span>
-                        <span className="ml-auto font-semibold text-gray-900">₹{entry.amount.toLocaleString()}</span>
+                        <span className="font-semibold text-gray-900 dark:text-white">{entry.title}</span>
+                        <span className="ml-2 text-gray-400 dark:text-gray-500">{entry.date ? new Date(entry.date).toLocaleDateString() : ''}</span>
+                        <span className="ml-auto font-semibold text-gray-900 dark:text-white">₹{entry.amount.toLocaleString()}</span>
                       </div>
                       {entry.notes && (
-                        <div className="text-xs text-gray-500 italic pl-1">{entry.notes}</div>
+                        <div className="text-xs text-gray-500 dark:text-gray-400 italic pl-1">{entry.notes}</div>
                       )}
                       <div className="flex gap-2 mt-1">
                         <button
@@ -702,23 +982,24 @@ export default function Home() {
                   )}
                 </li>
               ))}
-            </ul>
+              </ul>
+            </div>
 
             {/* ➕ Add Entry */}
-            <div className="border-t pt-4">
-              <h3 className="font-semibold mb-2">Add Entry</h3>
+            <div className="border-t dark:border-gray-700 pt-4">
+              <h3 className="font-semibold mb-2 text-gray-900 dark:text-white">Add Entry</h3>
 
               <div className="flex flex-col gap-2">
                 <div className="flex gap-2">
                   <input
-                    className="border rounded px-2 py-1 w-full"
+                    className="border dark:border-gray-600 rounded px-2 py-1 w-full bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                     placeholder="Title"
                     value={newTitle}
                     onChange={(e) => setNewTitle(e.target.value)}
                   />
                   <input
                     type="number"
-                    className="border rounded px-2 py-1 w-24"
+                    className="border dark:border-gray-600 rounded px-2 py-1 w-24 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                     placeholder="Amount"
                     value={newAmount}
                     onChange={(e) => setNewAmount(Number(e.target.value) || 0)}
@@ -727,12 +1008,12 @@ export default function Home() {
                 <div className="flex gap-2 mt-1">
                   <input
                     type="date"
-                    className="border rounded px-2 py-1 w-40"
+                    className="border dark:border-gray-600 rounded px-2 py-1 w-40 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                     value={newDate}
                     onChange={e => setNewDate(e.target.value)}
                   />
                   <input
-                    className="border rounded px-2 py-1 w-full"
+                    className="border dark:border-gray-600 rounded px-2 py-1 w-full bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                     placeholder="Notes (optional)"
                     value={newNotes}
                     onChange={e => setNewNotes(e.target.value)}
