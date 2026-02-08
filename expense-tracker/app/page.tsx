@@ -42,6 +42,10 @@ export default function Home() {
         const { theme, toggleTheme } = useTheme();
         // Menu state
         const [showMenu, setShowMenu] = useState(false);
+        // Analytics modal state
+        const [showAnalytics, setShowAnalytics] = useState(false);
+        // What's New modal state
+        const [showWhatsNew, setShowWhatsNew] = useState(false);
         // State for add entry modal
         const [showAddEntry, setShowAddEntry] = useState(false);
         const [addEntryBudgetIndex, setAddEntryBudgetIndex] = useState<number | null>(null);
@@ -95,7 +99,59 @@ export default function Home() {
     setLoading(true);
     // Fetch budgets (send month as 1-12 to backend)
     const res = await fetch(`/api/budgets?month=${selectedMonth + 1}&year=${selectedYear}`);
-    const budgetsData: Budget[] = await res.json();
+    let budgetsData: Budget[] = await res.json();
+    
+    // Auto-create recurring budgets (Savings, Investment, Fixed) from previous month if not exist
+    // Only check when current month has no budgets at all
+    if (budgetsData.length === 0) {
+      let prevMonth = selectedMonth - 1;
+      let prevYear = selectedYear;
+      if (prevMonth < 0) {
+        prevMonth = 11;
+        prevYear = selectedYear - 1;
+      }
+      
+      try {
+        // Fetch previous month's budgets
+        const prevBudgetsRes = await fetch(`/api/budgets?month=${prevMonth + 1}&year=${prevYear}`);
+        const prevBudgets: Budget[] = await prevBudgetsRes.json();
+        
+        // Find recurring budget types (Savings, Investment, Fixed)
+        const recurringBudgets = prevBudgets.filter(b => 
+          b.type === 'Savings' || b.type === 'Investment' || b.type === 'Fixed'
+        );
+        
+        // Check which recurring budgets don't exist in current month
+        for (const prevBudget of recurringBudgets) {
+          const exists = budgetsData.some(b => 
+            b.name === prevBudget.name && b.type === prevBudget.type
+          );
+          
+          if (!exists) {
+            // Create the recurring budget for current month
+            const createRes = await fetch('/api/budgets', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                name: prevBudget.name,
+                type: prevBudget.type,
+                total: prevBudget.total,
+                month: selectedMonth + 1,
+                year: selectedYear,
+              }),
+            });
+            
+            if (createRes.ok) {
+              const newBudget = await createRes.json();
+              budgetsData.push(newBudget);
+            }
+          }
+        }
+      } catch (error) {
+        console.log('Could not auto-create recurring budgets');
+      }
+    }
+    
     setBudgets(budgetsData);
     // Fetch entries for all budgets
     let allEntries: Entry[] = [];
@@ -431,6 +487,26 @@ export default function Home() {
                   
                   <button
                     onClick={() => {
+                      setShowAnalytics(true);
+                      setShowMenu(false);
+                    }}
+                    className="block w-full text-left px-4 py-2.5 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-900 dark:text-gray-100 border-b dark:border-gray-600"
+                  >
+                    <span className="text-base">📈</span> View Analytics
+                  </button>
+                  
+                  <button
+                    onClick={() => {
+                      setShowWhatsNew(true);
+                      setShowMenu(false);
+                    }}
+                    className="block w-full text-left px-4 py-2.5 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-900 dark:text-gray-100 border-b dark:border-gray-600"
+                  >
+                    <span className="text-base">🎉</span> What's New
+                  </button>
+                  
+                  <button
+                    onClick={() => {
                       downloadExcel();
                       setShowMenu(false);
                     }}
@@ -516,9 +592,9 @@ export default function Home() {
           <div className="flex flex-col gap-2 mb-3">
             <div className="flex gap-4 text-lg font-semibold">
               <span className="text-gray-900 dark:text-gray-100">Total Salary: <span className="text-gray-900 dark:text-gray-100 font-bold">₹ {Number(totalSalary).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span></span>
-              <span className="text-gray-900 dark:text-gray-100">Allocated: <span className="text-purple-700 dark:text-purple-400 font-bold">₹ {Number(totalAllocated).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span></span>
               <span className="text-gray-900 dark:text-gray-100">Spent: <span className="text-blue-700 dark:text-blue-400 font-bold">₹ {Number(totalSpent).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span></span>
-              <span className="text-gray-900 dark:text-gray-100">Unallocated: <span className="text-green-700 dark:text-green-400 font-bold">₹ {Number(unallocated).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span></span>
+              <span className="text-gray-900 dark:text-gray-100">Unallocated: <span className="text-orange-600 dark:text-orange-400 font-bold">₹ {Number(unallocated).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span></span>
+              <span className="text-gray-900 dark:text-gray-100">Remaining: <span className="text-green-700 dark:text-green-400 font-bold">₹ {Number(totalAllocated - totalSpent).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span></span>
             </div>
             {safeCarryforward > 0 && (
               <div className="flex items-center gap-2 text-sm">
@@ -579,7 +655,24 @@ export default function Home() {
         {budgets.map((budget, index) => {
           const spent = Number(calculateSpent(budget.id)) || 0;
           const safeBudgetTotal = Number(budget.total) || 0;
-          const percentUsed = safeBudgetTotal > 0 ? Math.min((spent / safeBudgetTotal) * 100, 100) : 0;
+          const percentUsed = safeBudgetTotal > 0 ? (spent / safeBudgetTotal) * 100 : 0;
+          
+          // Progress bar color based on percentage (only for Expense type)
+          let progressBarColor = 'bg-green-500';
+          let warningMessage = '';
+          
+          if (budget.type === 'Expense') {
+            if (percentUsed >= 50 && percentUsed < 80) {
+              progressBarColor = 'bg-yellow-500';
+            } else if (percentUsed >= 80) {
+              progressBarColor = 'bg-red-500';
+            }
+            
+            // Warning message only for Expense type
+            if (percentUsed >= 100) {
+              warningMessage = spent > safeBudgetTotal ? 'Overexceeding budget' : 'You have used the whole budget';
+            }
+          }
           // Icon, color, and progress bar color by category name (simple mapping)
           const categoryMeta: Record<string, {icon: string, color: string, bar: string}> = {
             Transport: { icon: '🚗', color: 'text-orange-500', bar: 'bg-yellow-400' },
@@ -660,15 +753,28 @@ export default function Home() {
                 ₹{Number(spent).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})} <span className="font-normal text-gray-500 dark:text-gray-400">/ ₹{Number(budget.total).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
                 <span className="block text-xs text-green-700 dark:text-green-400 font-semibold mt-1">Remaining: ₹{Number((safeBudgetTotal - spent)).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
               </div>
-              <div className="h-3 w-full bg-gray-200 dark:bg-gray-700 rounded-full mb-2">
+              
+              {/* Progress Bar */}
+              <div className="h-3 w-full bg-gray-200 dark:bg-gray-700 rounded-full mb-2 overflow-hidden">
                 <div
-                  className={`h-3 rounded-full transition-all ${meta.bar}`}
-                  style={{ width: `${safeBudgetTotal > 0 ? Math.min((spent / safeBudgetTotal) * 100, 100) : 0}%` }}
+                  className={`h-3 rounded-full transition-all ${progressBarColor}`}
+                  style={{ width: `${Math.min(percentUsed, 100)}%` }}
                 />
               </div>
-              {/* Entry List */}
-              <div className="text-right text-xs text-gray-500 mb-1">
-                {Math.round(percentUsed)}% of Budget Used
+              
+              {/* Warning Messages and Caution Sign */}
+              <div className="flex items-center justify-between text-xs mb-1">
+                <div className="flex items-center gap-2">
+                  {budget.type === 'Expense' && percentUsed >= 80 && (
+                    <span className="animate-pulse text-red-500 text-lg" title="Warning: High budget usage">⚠️</span>
+                  )}
+                  {warningMessage && (
+                    <span className="text-red-600 dark:text-red-400 font-semibold">{warningMessage}</span>
+                  )}
+                </div>
+                <span className="text-gray-500 dark:text-gray-400">
+                  {Math.round(percentUsed)}% of Budget Used
+                </span>
               </div>
               <ul className="text-sm space-y-1">
                 {budgetEntries.slice(0, 2).map((entry, i) => (
@@ -1004,6 +1110,297 @@ export default function Home() {
           </div>
         </div>
       )}
+
+      {/* What's New Modal */}
+      {showWhatsNew && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-6">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden">
+            <div className="flex-shrink-0 bg-white dark:bg-gray-800 border-b dark:border-gray-700 px-6 py-4 flex items-center justify-between">
+              <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">🎉 What's New</h2>
+              <button
+                onClick={() => setShowWhatsNew(false)}
+                className="text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 text-2xl px-2"
+              >✕</button>
+            </div>
+            
+            <div className="flex-1 overflow-y-auto p-6 space-y-6">
+              {/* Recent Updates */}
+              <div>
+                <h3 className="text-lg font-bold text-gray-900 dark:text-gray-100 mb-3">Recent Updates</h3>
+                <div className="space-y-4">
+                  <div className="border-l-4 border-blue-500 pl-4 py-2">
+                    <h4 className="font-semibold text-gray-900 dark:text-gray-100">📊 Analytics Dashboard</h4>
+                    <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">View detailed spending insights with pie charts, bar graphs, and financial summaries</p>
+                  </div>
+                  
+                  <div className="border-l-4 border-green-500 pl-4 py-2">
+                    <h4 className="font-semibold text-gray-900 dark:text-gray-100">🔄 Recurring Budgets</h4>
+                    <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">Savings, Investment, and Fixed budgets automatically carry over to new months</p>
+                  </div>
+                  
+                  <div className="border-l-4 border-yellow-500 pl-4 py-2">
+                    <h4 className="font-semibold text-gray-900 dark:text-gray-100">⚠️ Budget Progress Indicators</h4>
+                    <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">Color-coded progress bars (green/yellow/red) with warnings at 80% and 100% usage</p>
+                  </div>
+                  
+                  <div className="border-l-4 border-purple-500 pl-4 py-2">
+                    <h4 className="font-semibold text-gray-900 dark:text-gray-100">🌙 Dark Mode</h4>
+                    <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">Toggle between light and dark themes with persistent preference</p>
+                  </div>
+                  
+                  <div className="border-l-4 border-teal-500 pl-4 py-2">
+                    <h4 className="font-semibold text-gray-900 dark:text-gray-100">📜 Scrollable Entries Modal</h4>
+                    <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">Entries list with height limit and vertical scrolling for better mobile usability</p>
+                  </div>
+                  
+                  <div className="border-l-4 border-cyan-500 pl-4 py-2">
+                    <h4 className="font-semibold text-gray-900 dark:text-gray-100">📅 Auto-Open Current Month</h4>
+                    <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">App automatically loads current month and year on startup for instant access</p>
+                  </div>
+                  
+                  <div className="border-l-4 border-red-500 pl-4 py-2">
+                    <h4 className="font-semibold text-gray-900 dark:text-gray-100">💾 Total Salary Persistence</h4>
+                    <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">Monthly salary securely saved to database with easy editing and error handling</p>
+                  </div>
+                  
+                  <div className="border-l-4 border-emerald-500 pl-4 py-2">
+                    <h4 className="font-semibold text-gray-900 dark:text-gray-100">➕ Automatic Carryforward</h4>
+                    <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">Previous month's remaining balance automatically added to current funds with visual badges showing base salary and carryforward breakdown</p>
+                  </div>
+                  
+                  <div className="border-l-4 border-indigo-500 pl-4 py-2">
+                    <h4 className="font-semibold text-gray-900 dark:text-gray-100">💰 Enhanced Overview</h4>
+                    <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">New metrics: Remaining amount, Unallocated funds, and visual progress tracking</p>
+                  </div>
+                  
+                  <div className="border-l-4 border-pink-500 pl-4 py-2">
+                    <h4 className="font-semibold text-gray-900 dark:text-gray-100">📥 Excel Export</h4>
+                    <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">Download comprehensive financial reports with all budgets and entries</p>
+                  </div>
+                  
+                  <div className="border-l-4 border-orange-500 pl-4 py-2">
+                    <h4 className="font-semibold text-gray-900 dark:text-gray-100">🎨 UI Improvements</h4>
+                    <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">Cleaner, more compact layout with improved spacing and responsive design</p>
+                  </div>
+                </div>
+              </div>
+              
+              {/* Tips */}
+              <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-lg p-4">
+                <h3 className="text-lg font-bold text-blue-900 dark:text-blue-100 mb-2">💡 Pro Tips</h3>
+                <ul className="space-y-2 text-sm text-blue-800 dark:text-blue-200">
+                  <li>• Start by editing your base salary from the menu to set up your monthly budget</li>
+                  <li>• Use the Analytics dashboard to track your spending patterns</li>
+                  <li>• Set up recurring budgets once and they'll auto-create each month</li>
+                  <li>• Watch for the ⚠️ warning when you reach 80% of an Expense budget</li>
+                  <li>• Previous month's balance automatically carries forward to maximize savings</li>
+                  <li>• Download Excel reports for tax preparation or external analysis</li>
+                </ul>
+              </div>
+              
+              {/* Developer Info */}
+              <div className="bg-gray-50 dark:bg-gray-900/50 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+                <p className="text-sm text-gray-700 dark:text-gray-300 text-center">
+                  <span className="font-semibold">Developed by Shannon Dsouza</span>
+                </p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 text-center mt-2">
+                  Have suggestions or found a bug? Feel free to reach out!
+                </p>
+              </div>
+            </div>
+            
+            <div className="flex-shrink-0 bg-gray-50 dark:bg-gray-900 border-t dark:border-gray-700 px-6 py-4 flex justify-end">
+              <button
+                onClick={() => setShowWhatsNew(false)}
+                className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold"
+              >Got it!</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Analytics Modal */}
+      {showAnalytics && (() => {
+        // Calculate budget-wise breakdown
+        const budgetBreakdown = budgets.map(b => ({
+          name: b.name,
+          spent: Number(calculateSpent(b.id)),
+          allocated: Number(b.total),
+          type: b.type
+        })).filter(b => b.spent > 0);
+        
+        const totalSpentForPie = budgetBreakdown.reduce((sum, b) => sum + b.spent, 0);
+        
+        // Calculate by type
+        const typeBreakdown = budgets.reduce((acc, b) => {
+          const spent = Number(calculateSpent(b.id));
+          if (!acc[b.type]) acc[b.type] = 0;
+          acc[b.type] += spent;
+          return acc;
+        }, {} as Record<string, number>);
+        
+        const colors = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4'];
+        
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-6">
+            <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-5xl max-h-[90vh] flex flex-col overflow-hidden">
+              {/* Header */}
+              <div className="flex-shrink-0 bg-white dark:bg-gray-800 border-b dark:border-gray-700 px-6 py-4 flex items-center justify-between rounded-t-2xl">
+                <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">📈 Analytics Dashboard</h2>
+                <button
+                  onClick={() => setShowAnalytics(false)}
+                  className="text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 text-2xl px-2"
+                >✕</button>
+              </div>
+              
+              <div className="flex-1 overflow-y-auto p-6 space-y-8">
+                {/* Summary Cards */}
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                  <div className="bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-900/20 dark:to-blue-800/30 p-4 rounded-xl border border-blue-200 dark:border-blue-700">
+                    <div className="text-sm text-blue-600 dark:text-blue-400 font-medium">Total Salary</div>
+                    <div className="text-2xl font-bold text-blue-900 dark:text-blue-100 mt-1">₹{Number(totalSalary).toLocaleString()}</div>
+                  </div>
+                  <div className="bg-gradient-to-br from-purple-50 to-purple-100 dark:from-purple-900/20 dark:to-purple-800/30 p-4 rounded-xl border border-purple-200 dark:border-purple-700">
+                    <div className="text-sm text-purple-600 dark:text-purple-400 font-medium">Total Spent</div>
+                    <div className="text-2xl font-bold text-purple-900 dark:text-purple-100 mt-1">₹{Number(totalSpent).toLocaleString()}</div>
+                  </div>
+                  <div className="bg-gradient-to-br from-green-50 to-green-100 dark:from-green-900/20 dark:to-green-800/30 p-4 rounded-xl border border-green-200 dark:border-green-700">
+                    <div className="text-sm text-green-600 dark:text-green-400 font-medium">Remaining</div>
+                    <div className="text-2xl font-bold text-green-900 dark:text-green-100 mt-1">₹{Number(totalAllocated - totalSpent).toLocaleString()}</div>
+                  </div>
+                  <div className="bg-gradient-to-br from-orange-50 to-orange-100 dark:from-orange-900/20 dark:to-orange-800/30 p-4 rounded-xl border border-orange-200 dark:border-orange-700">
+                    <div className="text-sm text-orange-600 dark:text-orange-400 font-medium">Savings Rate</div>
+                    <div className="text-2xl font-bold text-orange-900 dark:text-orange-100 mt-1">{totalSalary > 0 ? Math.round(((totalSalary - totalSpent) / totalSalary) * 100) : 0}%</div>
+                  </div>
+                </div>
+                
+                {/* Budget-wise Breakdown */}
+                <div className="bg-gray-50 dark:bg-gray-900/50 p-6 rounded-xl">
+                  <h3 className="text-lg font-bold text-gray-900 dark:text-gray-100 mb-6">Budget-wise Spending Breakdown</h3>
+                  <div className="flex flex-col lg:flex-row gap-8 items-center lg:items-start">
+                    {/* Pie Chart */}
+                    <div className="flex-shrink-0">
+                      {totalSpentForPie > 0 ? (
+                        <svg viewBox="0 0 100 100" width="256" height="256" className="transform -rotate-90">
+                            {(() => {
+                              let currentAngle = 0;
+                              return budgetBreakdown.map((budget, idx) => {
+                                const percentage = (budget.spent / totalSpentForPie) * 100;
+                                const angle = (percentage / 100) * 360;
+                                const startAngle = currentAngle;
+                                currentAngle += angle;
+                                
+                                const x1 = 50 + 40 * Math.cos((startAngle * Math.PI) / 180);
+                                const y1 = 50 + 40 * Math.sin((startAngle * Math.PI) / 180);
+                                const x2 = 50 + 40 * Math.cos(((startAngle + angle) * Math.PI) / 180);
+                                const y2 = 50 + 40 * Math.sin(((startAngle + angle) * Math.PI) / 180);
+                                const largeArc = angle > 180 ? 1 : 0;
+                                
+                                return (
+                                  <path
+                                    key={budget.name}
+                                    d={`M 50 50 L ${x1} ${y1} A 40 40 0 ${largeArc} 1 ${x2} ${y2} Z`}
+                                    fill={colors[idx % colors.length]}
+                                    stroke="white"
+                                    strokeWidth="0.5"
+                                  />
+                                );
+                              });
+                            })()}
+                          </svg>
+                      ) : (
+                        <div className="w-64 h-64 flex items-center justify-center text-gray-400 dark:text-gray-500 text-center">No spending data</div>
+                      )}
+                    </div>
+                    
+                    {/* Legend */}
+                    <div className="flex-1 space-y-2 min-w-0">
+                      {budgetBreakdown.map((budget, idx) => {
+                        const percentage = totalSpentForPie > 0 ? (budget.spent / totalSpentForPie) * 100 : 0;
+                        return (
+                          <div key={budget.name} className="flex items-center gap-3 p-2 rounded hover:bg-white dark:hover:bg-gray-800">
+                            <div className="w-4 h-4 rounded" style={{ backgroundColor: colors[idx % colors.length] }}></div>
+                            <div className="flex-1">
+                              <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">{budget.name}</div>
+                              <div className="text-xs text-gray-500 dark:text-gray-400">₹{budget.spent.toLocaleString()} ({percentage.toFixed(1)}%)</div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+                
+                {/* Type Comparison */}
+                <div className="bg-gray-50 dark:bg-gray-900/50 p-6 rounded-xl">
+                  <h3 className="text-lg font-bold text-gray-900 dark:text-gray-100 mb-4">Expense vs Investment vs Savings</h3>
+                  <div className="space-y-4">
+                    {Object.entries(typeBreakdown).map(([type, amount]) => {
+                      const maxAmount = Math.max(...Object.values(typeBreakdown));
+                      const percentage = maxAmount > 0 ? (amount / maxAmount) * 100 : 0;
+                      let barColor = 'bg-blue-500';
+                      if (type === 'Savings') barColor = 'bg-green-500';
+                      else if (type === 'Investment') barColor = 'bg-purple-500';
+                      else if (type === 'Fixed') barColor = 'bg-orange-500';
+                      
+                      return (
+                        <div key={type}>
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">{type}</span>
+                            <span className="text-sm text-gray-600 dark:text-gray-400">₹{Number(amount).toLocaleString()}</span>
+                          </div>
+                          <div className="h-8 w-full bg-gray-200 dark:bg-gray-700 rounded-lg overflow-hidden">
+                            <div
+                              className={`h-full ${barColor} transition-all duration-500 flex items-center justify-end pr-3`}
+                              style={{ width: `${percentage}%` }}
+                            >
+                              {percentage > 15 && (
+                                <span className="text-white text-xs font-semibold">
+                                  {totalSpent > 0 ? Math.round((amount / totalSpent) * 100) : 0}%
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+                
+                {/* Monthly Overview */}
+                <div className="bg-gray-50 dark:bg-gray-900/50 p-6 rounded-xl">
+                  <h3 className="text-lg font-bold text-gray-900 dark:text-gray-100 mb-4">Current Month Overview</h3>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div className="text-center p-4 bg-white dark:bg-gray-800 rounded-lg">
+                      <div className="text-3xl mb-2">{budgets.length}</div>
+                      <div className="text-sm text-gray-600 dark:text-gray-400">Total Budgets</div>
+                    </div>
+                    <div className="text-center p-4 bg-white dark:bg-gray-800 rounded-lg">
+                      <div className="text-3xl mb-2">{entries.length}</div>
+                      <div className="text-sm text-gray-600 dark:text-gray-400">Total Entries</div>
+                    </div>
+                    <div className="text-center p-4 bg-white dark:bg-gray-800 rounded-lg">
+                      <div className="text-3xl mb-2">₹{entries.length > 0 ? Math.round(totalSpent / entries.length) : 0}</div>
+                      <div className="text-sm text-gray-600 dark:text-gray-400">Avg per Entry</div>
+                    </div>
+                    <div className="text-center p-4 bg-white dark:bg-gray-800 rounded-lg">
+                      <div className="text-3xl mb-2">{totalSpent > totalAllocated ? '⚠️' : '✅'}</div>
+                      <div className="text-sm text-gray-600 dark:text-gray-400">{totalSpent > totalAllocated ? 'Over Budget' : 'On Track'}</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              
+              <div className="flex-shrink-0 bg-gray-50 dark:bg-gray-900 border-t dark:border-gray-700 px-6 py-4 flex justify-end rounded-b-2xl">
+                <button
+                  onClick={() => setShowAnalytics(false)}
+                  className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold"
+                >Close</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </main>
   );
 }
