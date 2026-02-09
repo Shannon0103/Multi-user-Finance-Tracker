@@ -46,6 +46,8 @@ export default function Home() {
         const [showAnalytics, setShowAnalytics] = useState(false);
         // What's New modal state
         const [showWhatsNew, setShowWhatsNew] = useState(false);
+        // Smart Insights modal state
+        const [showInsights, setShowInsights] = useState(false);
         // State for add entry modal
         const [showAddEntry, setShowAddEntry] = useState(false);
         const [addEntryBudgetIndex, setAddEntryBudgetIndex] = useState<number | null>(null);
@@ -493,6 +495,16 @@ export default function Home() {
                     className="block w-full text-left px-4 py-2.5 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-900 dark:text-gray-100 border-b dark:border-gray-600"
                   >
                     <span className="text-base">📈</span> View Analytics
+                  </button>
+                  
+                  <button
+                    onClick={() => {
+                      setShowInsights(true);
+                      setShowMenu(false);
+                    }}
+                    className="block w-full text-left px-4 py-2.5 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-900 dark:text-gray-100 border-b dark:border-gray-600"
+                  >
+                    <span className="text-base">💡</span> Smart Insights
                   </button>
                   
                   <button
@@ -1111,6 +1123,525 @@ export default function Home() {
         </div>
       )}
 
+      {/* Smart Insights Modal */}
+      {showInsights && (() => {
+        // Calculate insights
+        const insights: Array<{type: 'warning' | 'success' | 'tip' | 'info', icon: string, title: string, description: string}> = [];
+        
+        // 1. Unallocated funds alert
+        if (unallocated > 1000) {
+          insights.push({
+            type: 'tip',
+            icon: '💰',
+            title: 'Unallocated Funds Available',
+            description: `You have ₹${Number(unallocated).toLocaleString()} unallocated. Consider creating new budgets or increasing existing ones to maximize your money management.`
+          });
+        }
+        
+        // 2. Budget burn rate warnings
+        budgets.forEach(budget => {
+          if (budget.type === 'Expense') {
+            const spent = calculateSpent(budget.id);
+            const percentUsed = budget.total > 0 ? (spent / budget.total) * 100 : 0;
+            const remaining = budget.total - spent;
+            
+            if (percentUsed >= 80 && percentUsed < 100) {
+              insights.push({
+                type: 'warning',
+                icon: '⚠️',
+                title: `${budget.name} Budget Alert`,
+                description: `You've used ${Math.round(percentUsed)}% of your ${budget.name} budget. ₹${Number(remaining).toLocaleString()} remaining - spend wisely!`
+              });
+            } else if (percentUsed >= 100) {
+              insights.push({
+                type: 'warning',
+                icon: '🚨',
+                title: `${budget.name} Budget Exceeded`,
+                description: `You've exceeded your ${budget.name} budget by ₹${Math.round(spent - budget.total).toLocaleString()}. Consider reviewing your spending or increasing the budget.`
+              });
+            }
+          }
+        });
+        
+        // 3. Under-utilized budgets
+        budgets.forEach(budget => {
+          const spent = calculateSpent(budget.id);
+          const percentUsed = budget.total > 0 ? (spent / budget.total) * 100 : 0;
+          
+          if (percentUsed < 30 && budget.total > 1000 && spent > 0) {
+            insights.push({
+              type: 'tip',
+              icon: '📊',
+              title: `${budget.name} Budget Underutilized`,
+              description: `Only ${Math.round(percentUsed)}% used (₹${Math.round(spent).toLocaleString()} of ₹${Math.round(budget.total).toLocaleString()}). You could reallocate ₹${Math.round(budget.total - spent - 500).toLocaleString()} to other categories.`
+            });
+          }
+        });
+        
+        // 4. Savings rate analysis
+        const savingsRate = totalSalary > 0 ? ((totalSalary - totalSpent) / totalSalary) * 100 : 0;
+        // Only show savings insights if user has tracked at least 3 entries (real data)
+        if (savingsRate >= 20 && entries.length >= 3) {
+          insights.push({
+            type: 'success',
+            icon: '🎉',
+            title: 'Excellent Savings Rate!',
+            description: `You're saving ${Math.round(savingsRate)}% of your income (₹${Number(remaining).toLocaleString()}). This exceeds the recommended 20% - keep up the great work!`
+          });
+        } else if (savingsRate > 0 && savingsRate < 20 && entries.length >= 3) {
+          insights.push({
+            type: 'tip',
+            icon: '💪',
+            title: 'Savings Goal Opportunity',
+            description: `Current savings rate: ${Math.round(savingsRate)}%. Try to reach 20% by saving an additional ₹${Math.round((totalSalary * 0.20) - remaining).toLocaleString()} this month.`
+          });
+        } else if (savingsRate < 0 && entries.length >= 3) {
+          insights.push({
+            type: 'warning',
+            icon: '⚠️',
+            title: 'Spending Exceeds Income',
+            description: `You've spent ₹${Number(Math.abs(remaining)).toLocaleString()} more than your salary. Review your expenses and consider cutting back on non-essential spending.`
+          });
+        }
+        
+        // 5. Entry tracking consistency
+        if (entries.length === 0) {
+          insights.push({
+            type: 'info',
+            icon: '📝',
+            title: 'Start Tracking Expenses',
+            description: 'No entries found this month. Add your first expense to start tracking your spending patterns and getting personalized insights!'  
+          });
+        } else if (entries.length < 5) {
+          insights.push({
+            type: 'info',
+            icon: '📝',
+            title: 'Keep Tracking!',
+            description: `You have ${entries.length} ${entries.length === 1 ? 'entry' : 'entries'} this month. Regular tracking helps identify spending patterns and improve financial decisions.`
+          });
+        }
+        
+        // 6. Budget diversity recommendation
+        const budgetTypes = new Set(budgets.map(b => b.type));
+        if (!budgetTypes.has('Savings') && totalSalary > 0) {
+          insights.push({
+            type: 'tip',
+            icon: '💚',
+            title: 'Create a Savings Budget',
+            description: 'Consider creating a dedicated Savings budget to automate your savings and track progress toward financial goals.'  
+          });
+        }
+        if (!budgetTypes.has('Investment') && totalSalary > 50000) {
+          insights.push({
+            type: 'tip',
+            icon: '📈',
+            title: 'Investment Opportunity',
+            description: 'With your income level, consider creating an Investment budget to build long-term wealth through systematic investing.'  
+          });
+        }
+        
+        // 7. Small expense aggregation
+        const smallExpenses = entries.filter(e => Number(e.amount) < 200);
+        const smallExpensesTotal = smallExpenses.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+        if (smallExpenses.length >= 10 && smallExpensesTotal > 2000) {
+          insights.push({
+            type: 'info',
+            icon: '🔍',
+            title: 'Small Expenses Add Up',
+            description: `You have ${smallExpenses.length} small expenses (<₹200) totaling ₹${Math.round(smallExpensesTotal).toLocaleString()}. These micro-transactions can significantly impact your budget.`
+          });
+        }
+        
+        // 8. Carryforward success
+        if (safeCarryforward > 0) {
+          insights.push({
+            type: 'success',
+            icon: '↗️',
+            title: 'Carryforward Success',
+            description: `Great job! You carried forward ₹${Number(safeCarryforward).toLocaleString()} from last month. This adds to your financial flexibility this month.`
+          });
+        }
+        
+        // 9. Budget adherence score
+        const adherenceScores = budgets.map(b => {
+          const spent = calculateSpent(b.id);
+          if (b.total === 0) return 100;
+          const usage = (spent / b.total) * 100;
+          if (usage <= 100) return 100;
+          return Math.max(0, 100 - (usage - 100));
+        });
+        const avgAdherence = adherenceScores.length > 0 
+          ? adherenceScores.reduce((a, b) => a + b, 0) / adherenceScores.length 
+          : 0;
+        
+        if (avgAdherence >= 80 && budgets.length > 0) {
+          insights.push({
+            type: 'success',
+            icon: '✅',
+            title: 'Excellent Budget Discipline',
+            description: `Your budget adherence is ${Math.round(avgAdherence)}%. You're staying within your limits - excellent financial discipline!`
+          });
+        }
+        
+        // 10. Day-of-Week Spending Patterns
+        const entriesWithDates = entries.filter(e => e.date);
+        if (entriesWithDates.length >= 5) {
+          const daySpending: { [key: number]: number[] } = { 0: [], 1: [], 2: [], 3: [], 4: [], 5: [], 6: [] };
+          entriesWithDates.forEach(e => {
+            const dayOfWeek = new Date(e.date!).getDay();
+            daySpending[dayOfWeek].push(Number(e.amount) || 0);
+          });
+          
+          // Calculate average spending per day type
+          const weekdaySpending = [1, 2, 3, 4, 5].flatMap(d => daySpending[d]);
+          const weekendSpending = [0, 6].flatMap(d => daySpending[d]);
+          
+          const avgWeekday = weekdaySpending.length > 0 ? weekdaySpending.reduce((a, b) => a + b, 0) / weekdaySpending.length : 0;
+          const avgWeekend = weekendSpending.length > 0 ? weekendSpending.reduce((a, b) => a + b, 0) / weekendSpending.length : 0;
+          
+          if (avgWeekend > 0 && avgWeekday > 0) {
+            const weekendIncrease = ((avgWeekend - avgWeekday) / avgWeekday) * 100;
+            if (weekendIncrease >= 30) {
+              insights.push({
+                type: 'info',
+                icon: '📅',
+                title: 'Weekend Spending Pattern',
+                description: `You spend ${Math.round(weekendIncrease)}% more on weekends (avg ₹${Math.round(avgWeekend).toLocaleString()}) vs weekdays (₹${Math.round(avgWeekday).toLocaleString()}). Consider setting weekend spending limits.`
+              });
+            } else if (weekendIncrease <= -30) {
+              insights.push({
+                type: 'success',
+                icon: '📅',
+                title: 'Controlled Weekend Spending',
+                description: `Great job! Your weekend spending is ${Math.round(Math.abs(weekendIncrease))}% lower than weekdays. You're maintaining good spending discipline.`
+              });
+            }
+          }
+          
+          // Find highest spending day
+          const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+          let maxDayTotal = 0;
+          let maxDay = 0;
+          for (let d = 0; d < 7; d++) {
+            const total = daySpending[d].reduce((a, b) => a + b, 0);
+            if (total > maxDayTotal) {
+              maxDayTotal = total;
+              maxDay = d;
+            }
+          }
+          if (maxDayTotal > 0 && daySpending[maxDay].length >= 3) {
+            insights.push({
+              type: 'info',
+              icon: '📊',
+              title: `${dayNames[maxDay]} is Your Biggest Spending Day`,
+              description: `Total of ₹${maxDayTotal.toLocaleString()} spent across ${daySpending[maxDay].length} transactions on ${dayNames[maxDay]}s this month.`
+            });
+          }
+        }
+        
+        // 11. Predictive Budget Alerts
+        const today = new Date();
+        const currentDay = today.getDate();
+        const daysInMonth = new Date(selectedYear, selectedMonth + 1, 0).getDate();
+        const daysRemaining = daysInMonth - currentDay;
+        const daysPassed = currentDay;
+        
+        if (daysPassed >= 5 && daysRemaining > 0) {
+          budgets.forEach(budget => {
+            if (budget.type === 'Expense') {
+              const spent = calculateSpent(budget.id);
+              const percentUsed = budget.total > 0 ? (spent / budget.total) * 100 : 0;
+              const dailyRate = spent / daysPassed;
+              const projectedTotal = dailyRate * daysInMonth;
+              
+              // Only show predictions if budget has meaningful spending
+              if (spent > 0) {
+                if (projectedTotal > budget.total && spent < budget.total) {
+                  const daysUntilExceed = Math.ceil((budget.total - spent) / dailyRate);
+                  const exceedDate = new Date(selectedYear, selectedMonth, currentDay + daysUntilExceed);
+                  const monthName = months[exceedDate.getMonth()];
+                  
+                  insights.push({
+                    type: 'warning',
+                    icon: '🔮',
+                    title: `${budget.name} Budget Prediction`,
+                    description: `At current pace (₹${Math.round(dailyRate).toLocaleString()}/day), you'll exceed your ₹${budget.total.toLocaleString()} budget by ${monthName} ${exceedDate.getDate()}. Consider reducing spending by ₹${Math.round(dailyRate - ((budget.total - spent) / daysRemaining)).toLocaleString()}/day.`
+                  });
+                } else if (projectedTotal <= budget.total * 0.7 && percentUsed >= 30) {
+                  // Only show "on track" if budget is actively being used (>30%)
+                  insights.push({
+                    type: 'success',
+                    icon: '📈',
+                    title: `${budget.name} On Track`,
+                    description: `Projected spending: ₹${Math.round(projectedTotal).toLocaleString()} of ₹${budget.total.toLocaleString()}. You're on pace to save ₹${Math.round(budget.total - projectedTotal).toLocaleString()} in this category!`
+                  });
+                }
+              }
+            }
+          });
+        }
+        
+        // 12. Recurring Expense Detection
+        const titleCounts: { [key: string]: { count: number; total: number; budgetType: string } } = {};
+        entries.forEach(e => {
+          const normalizedTitle = e.title.toLowerCase().trim();
+          const budget = budgets.find(b => b.id === e.budget_id);
+          if (!titleCounts[normalizedTitle]) {
+            titleCounts[normalizedTitle] = { count: 0, total: 0, budgetType: budget?.type || '' };
+          }
+          titleCounts[normalizedTitle].count++;
+          titleCounts[normalizedTitle].total += Number(e.amount) || 0;
+        });
+        
+        const recurringCandidates = Object.entries(titleCounts)
+          .filter(([_, data]) => data.count >= 2 && data.budgetType === 'Expense')
+          .sort((a, b) => b[1].total - a[1].total);
+        
+        if (recurringCandidates.length > 0) {
+          const [title, data] = recurringCandidates[0];
+          const hasFixedBudget = budgets.some(b => b.type === 'Fixed' && b.name.toLowerCase().includes(title));
+          if (!hasFixedBudget) {
+            insights.push({
+              type: 'tip',
+              icon: '🔄',
+              title: 'Recurring Expense Detected',
+              description: `"${title.charAt(0).toUpperCase() + title.slice(1)}" appears ${data.count} times (₹${Math.round(data.total).toLocaleString()} total). Consider creating a Fixed budget for predictable expenses!`
+            });
+          }
+        }
+        
+        // 13. Missing Entry Reminders for Fixed Budgets
+        const fixedBudgets = budgets.filter(b => b.type === 'Fixed');
+        fixedBudgets.forEach(fixedBudget => {
+          const fixedEntries = getBudgetEntries(fixedBudget.id);
+          if (fixedEntries.length === 0 && currentDay >= 5) {
+            insights.push({
+              type: 'info',
+              icon: '📋',
+              title: `No ${fixedBudget.name} Entry Yet`,
+              description: `It's ${months[selectedMonth]} ${currentDay}, but no entry logged for ${fixedBudget.name} (Fixed: ₹${fixedBudget.total.toLocaleString()}). Don't forget to record this expense!`
+            });
+          }
+        });
+        
+        // 14. Month Progress vs Spending Pace
+        const monthProgress = (currentDay / daysInMonth) * 100;
+        const spendingProgress = totalSalary > 0 ? (totalSpent / totalSalary) * 100 : 0;
+        
+        if (spendingProgress > monthProgress + 15 && totalSalary > 0) {
+          insights.push({
+            type: 'warning',
+            icon: '⏰',
+            title: 'Spending Outpacing Time',
+            description: `You've used ${Math.round(spendingProgress)}% of your budget but only ${Math.round(monthProgress)}% of the month has passed. Slow down to avoid overspending!`
+          });
+        } else if (spendingProgress < monthProgress - 20 && entries.length > 5) {
+          insights.push({
+            type: 'success',
+            icon: '🏃',
+            title: 'Ahead of Schedule',
+            description: `Only ${Math.round(spendingProgress)}% spent with ${Math.round(monthProgress)}% of the month gone. You're on track for great savings!`
+          });
+        }
+        
+        // 15. Financial health score calculation
+        let healthScore = 50; // Base score
+        
+        // Savings rate contribution (0-25 points) - only if enough data
+        if (entries.length >= 3) {
+          if (savingsRate >= 30) healthScore += 25;
+          else if (savingsRate >= 20) healthScore += 20;
+          else if (savingsRate >= 10) healthScore += 10;
+          else if (savingsRate >= 0) healthScore += 5;
+          else healthScore -= 10;
+        } else {
+          // Insufficient data - give minimal points
+          healthScore += 2;
+        }
+        
+        // Budget adherence (0-25 points)
+        healthScore += Math.round(avgAdherence * 0.25);
+        
+        // Budget diversity (0-15 points)
+        if (budgetTypes.has('Savings')) healthScore += 5;
+        if (budgetTypes.has('Investment')) healthScore += 5;
+        if (budgetTypes.has('Fixed')) healthScore += 5;
+        
+        // Active tracking (0-10 points)
+        if (entries.length >= 20) healthScore += 10;
+        else if (entries.length >= 10) healthScore += 7;
+        else if (entries.length >= 5) healthScore += 5;
+        else if (entries.length > 0) healthScore += 2;
+        
+        healthScore = Math.min(100, Math.max(0, healthScore));
+        
+        let healthGrade = 'F';
+        let healthColor = 'text-red-600';
+        if (healthScore >= 90) { healthGrade = 'A+'; healthColor = 'text-green-600'; }
+        else if (healthScore >= 80) { healthGrade = 'A'; healthColor = 'text-green-600'; }
+        else if (healthScore >= 70) { healthGrade = 'B'; healthColor = 'text-blue-600'; }
+        else if (healthScore >= 60) { healthGrade = 'C'; healthColor = 'text-yellow-600'; }
+        else if (healthScore >= 50) { healthGrade = 'D'; healthColor = 'text-orange-600'; }
+        else { healthGrade = 'F'; healthColor = 'text-red-600'; }
+        
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-6">
+            <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden">
+              {/* Header */}
+              <div className="flex-shrink-0 bg-gradient-to-r from-purple-600 to-blue-600 px-6 py-5 flex items-center justify-between">
+                <div>
+                  <h2 className="text-2xl font-bold text-white flex items-center gap-2">
+                    💡 Smart Insights
+                  </h2>
+                  <p className="text-purple-100 text-sm mt-1">AI-powered financial recommendations</p>
+                </div>
+                <button
+                  onClick={() => setShowInsights(false)}
+                  className="text-white hover:text-purple-200 text-2xl px-2"
+                >✕</button>
+              </div>
+              
+              <div className="flex-1 overflow-y-auto p-6 space-y-6">
+                {/* Financial Health Score */}
+                <div className="bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-800 p-6 rounded-xl border-2 border-gray-200 dark:border-gray-700">
+                  <h3 className="text-lg font-bold text-gray-900 dark:text-gray-100 mb-4 flex items-center gap-2">
+                    <span>🏆</span> Financial Health Score
+                  </h3>
+                  <div className="flex items-center gap-6">
+                    <div className="relative">
+                      <svg className="transform -rotate-90" width="120" height="120">
+                        <circle
+                          cx="60"
+                          cy="60"
+                          r="50"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="10"
+                          className="text-gray-200 dark:text-gray-700"
+                        />
+                        <circle
+                          cx="60"
+                          cy="60"
+                          r="50"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="10"
+                          strokeDasharray={`${(healthScore / 100) * 314} 314`}
+                          className={healthColor}
+                          strokeLinecap="round"
+                        />
+                      </svg>
+                      <div className="absolute inset-0 flex flex-col items-center justify-center">
+                        <span className={`text-3xl font-bold ${healthColor}`}>{healthScore}</span>
+                        <span className="text-xs text-gray-500">/ 100</span>
+                      </div>
+                    </div>
+                    <div className="flex-1">
+                      <div className={`text-4xl font-bold ${healthColor} mb-2`}>{healthGrade}</div>
+                      <div className="space-y-2 text-sm">
+                        <div className="flex items-center justify-between">
+                          <span className="text-gray-600 dark:text-gray-400">Savings Rate:</span>
+                          <span className="font-semibold text-gray-900 dark:text-gray-100">{Math.round(savingsRate)}%</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-gray-600 dark:text-gray-400">Budget Adherence:</span>
+                          <span className="font-semibold text-gray-900 dark:text-gray-100">{Math.round(avgAdherence)}%</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-gray-600 dark:text-gray-400">Active Tracking:</span>
+                          <span className="font-semibold text-gray-900 dark:text-gray-100">{entries.length} entries</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                
+                {/* Insights List */}
+                {insights.length === 0 ? (
+                  <div className="text-center py-12">
+                    <div className="text-6xl mb-4">🎯</div>
+                    <h3 className="text-xl font-bold text-gray-900 dark:text-gray-100 mb-2">You're Doing Great!</h3>
+                    <p className="text-gray-600 dark:text-gray-400">No critical insights at the moment. Keep tracking your expenses for personalized recommendations.</p>
+                  </div>
+                ) : (
+                  <div>
+                    <h3 className="text-lg font-bold text-gray-900 dark:text-gray-100 mb-4 flex items-center gap-2">
+                      <span>🎯</span> Personalized Recommendations ({insights.length})
+                    </h3>
+                    <div className="space-y-3">
+                      {insights.map((insight, idx) => {
+                        let borderColor = 'border-blue-300 dark:border-blue-700';
+                        let bgColor = 'bg-blue-50 dark:bg-blue-900/20';
+                        let iconBg = 'bg-blue-100 dark:bg-blue-800/30';
+                        
+                        if (insight.type === 'warning') {
+                          borderColor = 'border-orange-300 dark:border-orange-700';
+                          bgColor = 'bg-orange-50 dark:bg-orange-900/20';
+                          iconBg = 'bg-orange-100 dark:bg-orange-800/30';
+                        } else if (insight.type === 'success') {
+                          borderColor = 'border-green-300 dark:border-green-700';
+                          bgColor = 'bg-green-50 dark:bg-green-900/20';
+                          iconBg = 'bg-green-100 dark:bg-green-800/30';
+                        } else if (insight.type === 'tip') {
+                          borderColor = 'border-purple-300 dark:border-purple-700';
+                          bgColor = 'bg-purple-50 dark:bg-purple-900/20';
+                          iconBg = 'bg-purple-100 dark:bg-purple-800/30';
+                        }
+                        
+                        return (
+                          <div key={idx} className={`${bgColor} border ${borderColor} rounded-lg p-4 flex gap-4`}>
+                            <div className={`${iconBg} rounded-full w-12 h-12 flex items-center justify-center flex-shrink-0`}>
+                              <span className="text-2xl">{insight.icon}</span>
+                            </div>
+                            <div className="flex-1">
+                              <h4 className="font-semibold text-gray-900 dark:text-gray-100 mb-1">{insight.title}</h4>
+                              <p className="text-sm text-gray-700 dark:text-gray-300">{insight.description}</p>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+                
+                {/* Tips Section */}
+                <div className="bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-900/20 dark:to-purple-900/20 border border-blue-200 dark:border-blue-700 rounded-xl p-5">
+                  <h3 className="text-lg font-bold text-gray-900 dark:text-gray-100 mb-3 flex items-center gap-2">
+                    <span>💡</span> Pro Tips
+                  </h3>
+                  <ul className="space-y-2 text-sm text-gray-700 dark:text-gray-300">
+                    <li className="flex items-start gap-2">
+                      <span className="text-blue-500 mt-0.5">▸</span>
+                      <span>Track expenses daily for more accurate insights and better spending awareness</span>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <span className="text-blue-500 mt-0.5">▸</span>
+                      <span>Aim for at least 20% savings rate to build a healthy emergency fund</span>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <span className="text-blue-500 mt-0.5">▸</span>
+                      <span>Review underutilized budgets monthly and reallocate for better efficiency</span>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <span className="text-blue-500 mt-0.5">▸</span>
+                      <span>Use Fixed/Savings/Investment budgets for automatic financial discipline</span>
+                    </li>
+                  </ul>
+                </div>
+              </div>
+              
+              <div className="flex-shrink-0 bg-gray-50 dark:bg-gray-900 border-t dark:border-gray-700 px-6 py-4 flex justify-between items-center">
+                <p className="text-xs text-gray-500 dark:text-gray-400">Insights update in real-time as you track expenses</p>
+                <button
+                  onClick={() => setShowInsights(false)}
+                  className="px-6 py-2 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white rounded-lg font-semibold"
+                >Got it!</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* What's New Modal */}
       {showWhatsNew && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-6">
@@ -1128,6 +1659,11 @@ export default function Home() {
               <div>
                 <h3 className="text-lg font-bold text-gray-900 dark:text-gray-100 mb-3">Recent Updates</h3>
                 <div className="space-y-4">
+                  <div className="border-l-4 border-violet-500 pl-4 py-2">
+                    <h4 className="font-semibold text-gray-900 dark:text-gray-100">💡 Enhanced Smart Insights</h4>
+                    <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">New AI-powered insights: Day-of-week spending patterns, predictive budget alerts, recurring expense detection, and missing entry reminders</p>
+                  </div>
+                  
                   <div className="border-l-4 border-blue-500 pl-4 py-2">
                     <h4 className="font-semibold text-gray-900 dark:text-gray-100">📊 Analytics Dashboard</h4>
                     <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">View detailed spending insights with pie charts, bar graphs, and financial summaries</p>
@@ -1182,6 +1718,78 @@ export default function Home() {
                     <h4 className="font-semibold text-gray-900 dark:text-gray-100">🎨 UI Improvements</h4>
                     <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">Cleaner, more compact layout with improved spacing and responsive design</p>
                   </div>
+                </div>
+              </div>
+              
+              {/* Smart Insights Explanation */}
+              <div className="bg-gradient-to-br from-purple-50 to-blue-50 dark:from-purple-900/20 dark:to-blue-900/20 border-2 border-purple-300 dark:border-purple-700 rounded-xl p-5">
+                <h3 className="text-lg font-bold text-purple-900 dark:text-purple-100 mb-3 flex items-center gap-2">
+                  <span>🧠</span> Understanding Smart Insights
+                </h3>
+                <p className="text-sm text-gray-700 dark:text-gray-300 mb-4">
+                  Smart Insights automatically watches your spending and gives you helpful tips to improve your financial health.
+                </p>
+                
+                <div className="space-y-2 text-sm text-gray-700 dark:text-gray-300">
+                  <div className="flex items-start gap-2">
+                    <span className="text-lg">💰</span>
+                    <span>Alerts you when money is sitting idle or budgets are going over/under</span>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <span className="text-lg">🔮</span>
+                    <span>Predicts if you'll run out of budget before month ends (after 5 days)</span>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <span className="text-lg">📅</span>
+                    <span>Spots patterns like "you spend more on weekends" or "Netflix appears 3 times"</span>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <span className="text-lg">📋</span>
+                    <span>Reminds you about missing Fixed expenses like rent</span>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <span className="text-lg">💪</span>
+                    <span>Tells you your savings rate and suggests creating Savings/Investment budgets</span>
+                  </div>
+                </div>
+                
+                <div className="mt-4 pt-4 border-t border-purple-300 dark:border-purple-700">
+                  <h4 className="font-semibold text-purple-900 dark:text-purple-100 mb-2 flex items-center gap-2">
+                    <span>🏆</span> Your Financial Health Score (A+ to F)
+                  </h4>
+                  <div className="space-y-2 text-sm text-gray-700 dark:text-gray-300">
+                    <div className="flex justify-between items-center">
+                      <span>💰 How much you save each month</span>
+                      <span className="text-purple-700 dark:text-purple-300 font-semibold">25 points</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span>📊 Staying within your budgets</span>
+                      <span className="text-purple-700 dark:text-purple-300 font-semibold">25 points</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span>💚 Having Savings/Investment/Fixed budgets</span>
+                      <span className="text-purple-700 dark:text-purple-300 font-semibold">15 points</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span>📝 Tracking expenses regularly</span>
+                      <span className="text-purple-700 dark:text-purple-300 font-semibold">10 points</span>
+                    </div>
+                    <div className="mt-3 pt-3 border-t border-purple-200 dark:border-purple-800 flex justify-center gap-2 text-xs flex-wrap">
+                      <span className="px-2 py-1 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 rounded font-semibold">A+: 90+</span>
+                      <span className="px-2 py-1 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 rounded font-semibold">A: 80-89</span>
+                      <span className="px-2 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded font-semibold">B: 70-79</span>
+                      <span className="px-2 py-1 bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300 rounded font-semibold">C: 60-69</span>
+                      <span className="px-2 py-1 bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300 rounded font-semibold">D: 50-59</span>
+                      <span className="px-2 py-1 bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 rounded font-semibold">F: 0-49</span>
+                    </div>
+                  </div>
+                </div>
+                
+                <div className="mt-4 p-3 bg-purple-100 dark:bg-purple-900/30 rounded-lg flex items-start gap-2">
+                  <span className="text-lg">💡</span>
+                  <p className="text-xs text-purple-900 dark:text-purple-100 flex-1">
+                    <span className="font-bold">The more you track:</span> The system shows only relevant tips for your situation. Track daily for best insights!
+                  </p>
                 </div>
               </div>
               
