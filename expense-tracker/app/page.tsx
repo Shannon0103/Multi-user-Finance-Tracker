@@ -94,7 +94,63 @@ export default function Home() {
   const [entries, setEntries] = useState<Entry[]>([]);
   const [monthlyTotal, setMonthlyTotal] = useState<number>(0); // Base salary for this month
   const [carryforward, setCarryforward] = useState<number>(0); // Carryforward from previous month
+  const [enableCarryforward, setEnableCarryforward] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('enableCarryforward');
+      return saved !== null ? JSON.parse(saved) : true; // Default: enabled
+    }
+    return true;
+  });
   const [loading, setLoading] = useState(false);
+
+  // Helper function to recursively calculate carryforward
+  async function calculateCarryforwardRecursive(month: number, year: number): Promise<number> {
+    // Base case: first month tracked (no carryforward)
+    if (month === 0 && year === 2025) {
+      return 0;
+    }
+
+    let prevMonth = month - 1;
+    let prevYear = year;
+    if (prevMonth < 0) {
+      prevMonth = 11;
+      prevYear = year - 1;
+    }
+
+    try {
+      // Fetch previous month's salary
+      const prevSalaryRes = await fetch(`/api/salary?month=${prevMonth + 1}&year=${prevYear}`);
+      let prevSalary = 0;
+      if (prevSalaryRes.ok) {
+        const prevSalaryData = await prevSalaryRes.json();
+        prevSalary = Number(prevSalaryData.salary) || 0;
+      }
+
+      // Fetch previous month's budgets and entries
+      const prevBudgetsRes = await fetch(`/api/budgets?month=${prevMonth + 1}&year=${prevYear}`);
+      const prevBudgets: Budget[] = await prevBudgetsRes.json();
+
+      let prevEntries: Entry[] = [];
+      for (const b of prevBudgets) {
+        const eres = await fetch(`/api/entries?budget_id=${b.id}`);
+        const eData: Entry[] = await eres.json();
+        prevEntries = prevEntries.concat(eData);
+      }
+
+      // Calculate previous month's total spent
+      const prevSpent = prevEntries.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+
+      // Recursively get the carryforward INTO the previous month
+      const prevCarryforward = await calculateCarryforwardRecursive(prevMonth, prevYear);
+
+      // Calculate this month's carryforward: (salary + incoming carryforward) - spent
+      const remainingFromPrevMonth = Math.max(0, (prevSalary + prevCarryforward) - prevSpent);
+      return remainingFromPrevMonth;
+    } catch (error) {
+      console.log('Could not calculate carryforward recursively');
+      return 0;
+    }
+  }
 
   // Load budgets and entries for selected month/year
   async function loadBudgetsAndEntries() {
@@ -185,35 +241,12 @@ export default function Home() {
       prevYear = selectedYear - 1;
     }
     
-    try {
-      // Fetch previous month's budgets
-      const prevBudgetsRes = await fetch(`/api/budgets?month=${prevMonth + 1}&year=${prevYear}`);
-      const prevBudgets: Budget[] = await prevBudgetsRes.json();
-      
-      // Fetch previous month's entries
-      let prevEntries: Entry[] = [];
-      for (const b of prevBudgets) {
-        const eres = await fetch(`/api/entries?budget_id=${b.id}`);
-        const eData: Entry[] = await eres.json();
-        prevEntries = prevEntries.concat(eData);
-      }
-      
-      // Fetch previous month's salary
-      const prevSalaryRes = await fetch(`/api/salary?month=${prevMonth + 1}&year=${prevYear}`);
-      let prevSalary = 0;
-      if (prevSalaryRes.ok) {
-        const prevSalaryData = await prevSalaryRes.json();
-        prevSalary = Number(prevSalaryData.salary) || 0;
-      }
-      
-      // Calculate previous month's total spent
-      const prevSpent = prevEntries.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
-      
-      // Carryforward = Previous month's remaining (salary - spent)
-      const carryforwardAmount = Math.max(0, prevSalary - prevSpent);
+    // Only calculate carryforward if it's enabled
+    if (enableCarryforward) {
+      const carryforwardAmount = await calculateCarryforwardRecursive(selectedMonth, selectedYear);
       setCarryforward(carryforwardAmount);
-    } catch (error) {
-      console.log('Could not calculate carryforward, defaulting to 0');
+    } else {
+      // If carryforward is disabled, set it to 0
       setCarryforward(0);
     }
     
@@ -224,7 +257,7 @@ export default function Home() {
   React.useEffect(() => {
     loadBudgetsAndEntries();
     // eslint-disable-next-line
-  }, [selectedMonth, selectedYear]);
+  }, [selectedMonth, selectedYear, enableCarryforward]);
 
   /* =======================
      UI State
@@ -479,6 +512,19 @@ export default function Home() {
                   
                   <button
                     onClick={() => {
+                      const newValue = !enableCarryforward;
+                      setEnableCarryforward(newValue);
+                      localStorage.setItem('enableCarryforward', JSON.stringify(newValue));
+                      setShowMenu(false);
+                      loadBudgetsAndEntries();
+                    }}
+                    className="block w-full text-left px-4 py-2.5 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-900 dark:text-gray-100 border-b dark:border-gray-600"
+                  >
+                    <span className="text-base">{enableCarryforward ? '✅' : '❌'}</span> {enableCarryforward ? 'Disable' : 'Enable'} Carryforward
+                  </button>
+                  
+                  <button
+                    onClick={() => {
                       toggleTheme();
                       setShowMenu(false);
                     }}
@@ -543,7 +589,7 @@ export default function Home() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
           <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow w-full max-w-sm">
             <h2 className="font-semibold mb-4 text-gray-900 dark:text-gray-100">Edit Base Salary for {months[selectedMonth]}</h2>
-            {safeCarryforward > 0 && (
+            {enableCarryforward && safeCarryforward > 0 && (
               <div className="mb-4 p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-700 rounded-lg text-sm">
                 <div className="flex justify-between mb-1">
                   <span className="text-gray-600 dark:text-gray-400">Carryforward from previous month:</span>
@@ -557,6 +603,14 @@ export default function Home() {
                   <span className="font-semibold text-gray-800 dark:text-gray-200">Total Available:</span>
                   <span className="font-bold text-gray-900 dark:text-gray-100">₹{Number(totalSalary).toLocaleString()}</span>
                 </div>
+              </div>
+            )}
+            {!enableCarryforward && (
+              <div className="mb-4 p-3 bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-sm">
+                <div className="text-gray-700 dark:text-gray-300 font-medium">
+                  ℹ️ Carryforward is <span className="font-bold">disabled</span> - Previous month's balance will <span className="text-red-600 dark:text-red-400 font-bold">NOT</span> carry over to this month.
+                </div>
+                <div className="mt-2 text-gray-600 dark:text-gray-400 text-xs">You can enable it from the menu to reactivate carryforward.</div>
               </div>
             )}
             <input
@@ -608,7 +662,7 @@ export default function Home() {
               <span className="text-gray-900 dark:text-gray-100">Unallocated: <span className="text-orange-600 dark:text-orange-400 font-bold">₹ {Number(unallocated).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span></span>
               <span className="text-gray-900 dark:text-gray-100">Remaining: <span className="text-green-700 dark:text-green-400 font-bold">₹ {Number(totalAllocated - totalSpent).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span></span>
             </div>
-            {safeCarryforward > 0 && (
+            {safeCarryforward > 0 && enableCarryforward && (
               <div className="flex items-center gap-2 text-sm">
                 <span className="px-2 py-1 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-700 rounded text-green-700 dark:text-green-400 font-medium">
                   💰 Base Salary: ₹{Number(safeMonthlyTotal).toLocaleString()}
@@ -620,6 +674,16 @@ export default function Home() {
                 <span className="text-gray-400">＝</span>
                 <span className="px-2 py-1 bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded text-gray-800 dark:text-gray-200 font-bold">
                   Total: ₹{Number(totalSalary).toLocaleString()}
+                </span>
+              </div>
+            )}
+            {enableCarryforward === false && (
+              <div className="flex items-center gap-2 text-sm">
+                <span className="px-2 py-1 bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded text-gray-800 dark:text-gray-200 font-medium">
+                  ❌ Carryforward Disabled
+                </span>
+                <span className="px-2 py-1 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded text-blue-700 dark:text-blue-400 font-medium">
+                  💼 Using Base Salary Only: ₹{Number(safeMonthlyTotal).toLocaleString()}
                 </span>
               </div>
             )}
